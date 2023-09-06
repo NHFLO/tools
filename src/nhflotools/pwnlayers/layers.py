@@ -6,7 +6,7 @@ import geopandas as gpd
 import nlmod
 import numpy as np
 import pandas as pd
-import triwaco
+import nhflotools.pwnlayers.triwaco as triwaco
 import xarray as xr
 from shapely.geometry import LineString
 from shapely.geometry import Polygon
