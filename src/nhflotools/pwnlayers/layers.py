@@ -203,7 +203,7 @@ def triwaco_to_flopy(
         fname = "data/extracted/BasisbestandenNHDZmodelPWN_CvG_20181022/" "grid.teo"
     else:
         fname = os.path.join(
-            datadir, "extracted", "Grid", "grid.teo"
+            datadir, "Grid", "grid.teo"
         )
     grid = triwaco.read_teo(fname)
 
@@ -302,8 +302,6 @@ def triwaco_to_flopy(
             else:
                 fname = os.path.join(
                     datadir,
-                    "extracted",
-                    "BasisbestandenNHDZmodelPWN_CvG_20180611",
                     "boundary",
                     f"BH{lay}_2007.shp",
                 )
@@ -359,10 +357,10 @@ def triwaco_to_flopy(
             )
         else:
             pathname = os.path.join(
-                datadir, "extracted", "BasisbestandenNHDZmodelPWN_CvG_20180611"
+                datadir
             )
             pathname2 = os.path.join(
-                datadir, "extracted", "BasisbestandenNHDZmodelPWN_CvG_20180910"
+                datadir
             )
         fname = os.path.join(pathname2, "Topsyst", "Peilgebieden.shp")
         pg = gpd.read_file(fname)
@@ -614,7 +612,7 @@ def triwaco_to_flopy(
             )
         else:
             pathname = os.path.join(
-                datadir, "extracted", "BasisbestandenNHDZmodelPWN_CvG_20180611"
+                datadir, 
             )
 
         # codesoortRA
