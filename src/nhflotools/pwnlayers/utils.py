@@ -1093,6 +1093,7 @@ def evaluate_expressions_from_inifile(ini_fname, ds):
     in the ini file because some variables are used before they are created.
 
     """
+    assert os.path.exists(ini_fname), "inifile does not exist"
 
     if ini_fname.endswith(".xlsx"):
         df = pd.read_excel(ini_fname, "expressions", engine="openpyxl")
@@ -1204,6 +1205,7 @@ def shp2grid2(
     verbose=False,
 ):
     # read file
+    assert os.path.exists(fname), "file does not exist"
     if isinstance(fname, str):
         if verbose:
             print("Reading file {}".format(fname))
