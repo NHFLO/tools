@@ -11,6 +11,7 @@ import os
 import flopy
 import geopandas as gpd
 import nlmod
+from nlmod import cache
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -19,7 +20,7 @@ from tqdm import tqdm
 logger = logging.getLogger(__name__)
 
 
-@nlmod.cache.cache_netcdf
+@cache.cache_netcdf
 def get_pwn_onttrekking(model_ds, df_locaties_pwn, df_debiet_pwn, gwf, name="well_pwn"):
     """add the extraction wells to the model dataset.
 

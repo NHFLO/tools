@@ -7,6 +7,7 @@ import zipfile
 import flopy
 import geopandas as gpd
 import nlmod
+from nlmod import cache
 import numpy as np
 import pandas as pd
 import scipy
@@ -598,7 +599,7 @@ def set_ds_grid(ds, extent, delr, delc, refined_extent=None):
     return ds
 
 
-@nlmod.cache.cache_netcdf
+@cache.cache_netcdf
 def _read_top_of_aquitards(ds, pathname, m):
     """read top of aquitards
 
@@ -636,7 +637,7 @@ def _read_top_of_aquitards(ds, pathname, m):
     return ds_out
 
 
-@nlmod.cache.cache_netcdf
+@cache.cache_netcdf
 def _read_thickness_of_aquitards(ds, pathname, m):
     """read thickness of aquitards
 
@@ -675,7 +676,7 @@ def _read_thickness_of_aquitards(ds, pathname, m):
     return ds_out
 
 
-@nlmod.cache.cache_netcdf
+@cache.cache_netcdf
 def _read_kd_of_aquifers(ds, pathname, m):
     """read kd of aquifers
 
@@ -712,7 +713,7 @@ def _read_kd_of_aquifers(ds, pathname, m):
     return ds_out
 
 
-@nlmod.cache.cache_netcdf
+@cache.cache_netcdf
 def _read_mask_of_aquifers(ds, pathname, m):
     """read mask of aquifers
 
@@ -753,7 +754,7 @@ def _read_mask_of_aquifers(ds, pathname, m):
     return ds_out
 
 
-@nlmod.cache.cache_netcdf
+@cache.cache_netcdf
 def _read_layer_kh(ds, pathname, m):
     """read hydraulic conductivity of layers
 
@@ -789,7 +790,7 @@ def _read_layer_kh(ds, pathname, m):
     return ds_out
 
 
-@nlmod.cache.cache_netcdf
+@cache.cache_netcdf
 def _read_kv_area(ds, pathname, m):
     """read vertical resistance of layers
 
@@ -865,7 +866,7 @@ def _read_kv_area(ds, pathname, m):
     return ds_out
 
 
-@nlmod.cache.cache_netcdf
+@cache.cache_netcdf
 def _read_topsysteem(ds, pathname, m):
     """read topsysteem
 
@@ -932,7 +933,7 @@ def _read_topsysteem(ds, pathname, m):
     return ds_out
 
 
-@nlmod.cache.cache_netcdf
+@cache.cache_netcdf
 def _read_zout(ds, pathname2, m):
     """read zout
 
@@ -973,7 +974,7 @@ def _read_zout(ds, pathname2, m):
     return ds_out
 
 
-@nlmod.cache.cache_netcdf
+@cache.cache_netcdf
 def _read_bodemparams(ds, pathname2, m):
     """read bodemparams
 
@@ -1021,7 +1022,7 @@ def _read_bodemparams(ds, pathname2, m):
     return ds_out
 
 
-@nlmod.cache.cache_netcdf
+@cache.cache_netcdf
 def _read_fluzo(ds, datadir, m):
     """read fluzo
 

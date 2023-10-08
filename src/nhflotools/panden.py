@@ -12,6 +12,7 @@ import warnings
 import flopy
 import geopandas as gpd
 import nlmod
+from nlmod import cache
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -121,7 +122,7 @@ def get_panden(model_ds, panden, peilen, modelgrid, cachedir=None, use_cache=Fal
     return model_ds
 
 
-@nlmod.cache.cache_netcdf
+@cache.cache_netcdf
 def add_panden_to_model_ds(
     model_ds, panden, peilen, modelgrid, name="pand_riv", diepte_pand_gem=2.0
 ):
