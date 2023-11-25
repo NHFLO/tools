@@ -13,12 +13,8 @@ import pandas as pd
 import scipy
 from nhflotools.pwnlayers import triwaco
 import xarray as xr
-from matplotlib.path import Path
 from numpy.lib.recfunctions import append_fields
-from shapely.geometry import MultiLineString
-from shapely.geometry import MultiPolygon
 from shapely.geometry import Point
-from shapely.geometry import Polygon
 from tqdm import tqdm
 
 
@@ -63,50 +59,106 @@ def geodataframe_to_grid(
     return gdf
 
 
-def inpolygon(x, y, polygon, engine="matplotlib"):
-    """find out which points defined by x and y are within polygon
+# def gdf_inpolygon(ds, gdf, buffer=0.):
+#     """Counts in how many polygons a cell appears.
 
-    Parameters
-    ----------
-    x : np.array
-        x-coordinates of grid (same shape as y)
-    y : np.array
-        y-coordinates of grid (same shape as x)
-    polygon : shapely Polygon or MuliPolygon
-        the polygon for which you want mask to be True
-    engine : str
-        Use 'matplotlib' for speed, for all other values it uses shapely
+#     Parameters
+#     ----------
+#     ds : xr.DataSet
+#         xarray with model data
+#     gdf : geopandas.GeoDataFrame
+#         geodataframe with geometry
+#     buffer : float, optional
+#         buffer around geometry, by default 0.
 
-    Returns
-    -------
-    mask: np.array
-        an array of the same shape as x and y: True for points within polygon
+#     Returns
+#     -------
+#     da : xr.DataArray
+#         boolean data array with True for all cells within gdf
 
-    """
-    shape = x.shape
-    points = list(zip(x.flatten(), y.flatten()))
-    if engine == "matplotlib":
-        if isinstance(polygon, MultiPolygon):
-            mask = np.full((len(points)), False)
-            for pol2 in polygon:
-                if not isinstance(pol2, Polygon):
-                    raise (Exception("{} not supported".format(type(pol2))))
-                if isinstance(pol2.boundary, MultiLineString):
-                    xb, yb = pol2.boundary[0].xy
-                else:
-                    xb, yb = pol2.boundary.xy
-                path = Path(list(zip(xb, yb)))
-                mask = mask | path.contains_points(points)
-        elif isinstance(polygon, Polygon):
-            xb, yb = polygon.boundary.xy
-            path = Path(list(zip(xb, yb)))
-            mask = path.contains_points(points)
-        else:
-            raise (Exception("{} not supported".format(type(polygon))))
-    else:
-        mask = [polygon.contains(Point(x, y)) for x, y in points]
-        mask = np.array(mask)
-    return mask.reshape(shape)
+#     """
+#     isstructured = "icell2d" not in ds.x.dims
+#     # check if grid is structured
+#     if isstructured:
+#         mask = np.zeros((len(ds.x), len(ds.y)), dtype=int)
+#     else:
+#         mask = np.zeros((len(ds.x),), dtype=int)
+    
+#     for _, row in gdf.iterrows():
+#         # minx, miny, maxx, maxy
+#         in_extentx = (ds.x >= row.geometry.bounds[0] - buffer) & (ds.x <= row.geometry.bounds[2] + buffer)
+#         in_extenty = (ds.y >= row.geometry.bounds[1] - buffer) & (ds.y <= row.geometry.bounds[3] + buffer)
+
+#         if not in_extentx.any() or not in_extenty.any():
+#             continue
+
+#         if buffer > 0.:
+#             if isstructured:
+#                 xx, yy = np.meshgrid(ds.x[in_extentx], ds.y[in_extenty], indexing="ij")
+#                 counts = inpolygon(xx.flatten(), yy.flatten(), row.geometry.buffer(buffer))
+#                 mask[in_extentx * in_extenty] += counts
+
+#             else:
+#                 in_extent = in_extentx.values & in_extenty.values
+#                 mask[in_extent] += inpolygon(ds.x[in_extent], ds.y[in_extent], row.geometry.buffer(buffer))
+
+#         else:
+#             mask[in_extent] += inpolygon(ds.x[in_extent], ds.y[in_extent], row.geometry)
+
+#     if "icell2d" in ds.x.dims:
+#         da = xr.DataArray(mask, coords={"icell2d": ds.icell2d})
+#     else:
+#         da = xr.DataArray(mask, coords={"x": ds.x, "y": ds.y})
+
+#     return da
+
+
+# def inpolygon(x, y, polygon, engine="matplotlib"):
+#     """Counts in how many polygons a coordinate appears.
+
+#     Parameters
+#     ----------
+#     x : np.array
+#         x-coordinates of grid (same shape as y)
+#     y : np.array
+#         y-coordinates of grid (same shape as x)
+#     polygon : shapely Polygon or MuliPolygon
+#         the polygon for which you want mask to be True
+#     engine : str
+#         Use 'matplotlib' for speed, for all other values it uses shapely
+
+#     Returns
+#     -------
+#     mask: np.array of integers
+#         an array of the same shape as x and y: 1 for points within polygon and
+#         0 for points outside polygon. In case of multipolygon the mask is 1
+#         for points within 1 polygon and 2 in case of two overlapping polygons, etc.
+
+#     """
+#     if len(x) == 0:
+#         return np.array([], dtype=int)
+
+#     shape = x.shape
+#     points = list(zip(np.asarray(x).flatten(), np.asarray(y).flatten()))
+#     if engine == "matplotlib":
+#         if isinstance(polygon, MultiPolygon):
+#             mask = np.zeros((len(points)), dtype=int)
+
+#             for polygon2 in polygon.geoms:
+#                 path = Path(polygon2.exterior.coords)
+#                 mask += path.contains_points(points)
+
+#         elif isinstance(polygon, Polygon):
+#             path = Path(polygon.exterior.coords)
+#             mask = path.contains_points(points).astype(int)
+
+#         else:
+#             raise (Exception("{} not supported".format(type(polygon))))
+
+#     else:
+#         mask = [polygon.contains(Point(x, y)) for x, y in points]
+#         mask = np.asarray(mask, dtype=int)
+#     return mask.reshape(shape)
 
 
 def compare_layer_models_top_view(
@@ -600,7 +652,7 @@ def set_ds_grid(ds, extent, delr, delc, refined_extent=None):
 
 
 @cache.cache_netcdf
-def _read_top_of_aquitards(ds, pathname, m):
+def _read_top_of_aquitards(ds, pathname, length_transition=100., ix=None):
     """read top of aquitards
 
 
@@ -610,20 +662,27 @@ def _read_top_of_aquitards(ds, pathname, m):
         xarray with model data
     pathname : str
         directory with model data.
-    m : flopy.modflow
-        modflow model, the grid of this model is used to project the pwn data
-        on.
+    length_transition : float, optional
+        length of transition zone, by default 100.
+    ix : GridIntersect, optional
+        If not provided it is computed from ds.
 
     Returns
     -------
     ds_out : xr.DataSet
         xarray dataset with 'TS11', 'TS12', 'TS13', 'TS21', 'TS22', 'TS31',
         'TS32' variables.
+    ds_out_mask : xr.DataSet
+        xarray dataset with True for all cells for which ds_out has valid data.
+    ds_out_mask_transition : xr.DataSet
+        xarray dataset with True for all cells in the transition zone.
 
     """
     logging.info("read top of aquitards")
 
-    ds_out = nlmod.util.get_ds_empty(ds)
+    ds_out = xr.Dataset()
+    ds_out_mask = xr.Dataset()
+    ds_out_mask_transition = xr.Dataset()
 
     for name in ["TS11", "TS12", "TS13", "TS21", "TS22", "TS31", "TS32"]:
         fname = os.path.join(
@@ -631,16 +690,19 @@ def _read_top_of_aquitards(ds, pathname, m):
         )
         gdf = gpd.read_file(fname)
         gdf.geometry = gdf.buffer(0)
-        ds_out[name] = nlmod.dims.gdf_to_da(
-            gdf, ds, column="VALUE", agg_method="area_weighted"
+        ds_out[name] = nlmod.dims.grid.gdf_to_da(
+            gdf, ds, column="VALUE", agg_method="area_weighted", ix=ix
         )
-    return ds_out
+        ds_out_mask[name] = ~np.isnan(ds_out[name])
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
+        ds_out_mask_transition[name] = in_transition & ~ds_out_mask[name]
+
+    return ds_out, ds_out_mask, ds_out_mask_transition
 
 
 @cache.cache_netcdf
-def _read_thickness_of_aquitards(ds, pathname, m):
+def _read_thickness_of_aquitards(ds, pathname, length_transition=100., ix=None):
     """read thickness of aquitards
-
 
     Parameters
     ----------
@@ -648,19 +710,27 @@ def _read_thickness_of_aquitards(ds, pathname, m):
         xarray with model data
     pathname : str
         directory with model data.
-    m : flopy.modflow
-        modflow model.
+    length_transition : float, optional
+        length of transition zone, by default 100.
+    ix : GridIntersect, optional
+        If not provided it is computed from ds.
 
     Returns
     -------
     ds_out : xr.DataSet
         xarray dataset with 'DS11', 'DS12', 'DS13', 'DS21', 'DS22', 'DS31'
         variables.
+    ds_out_mask : xr.DataSet
+        xarray dataset with True for all cells for which ds_out has valid data.
+    ds_out_mask_transition : xr.DataSet
+        xarray dataset with True for all cells in the transition zone.
 
     """
     logging.info("read thickness of aquitards")
 
-    ds_out = nlmod.util.get_ds_empty(ds)
+    ds_out = xr.Dataset()
+    ds_out_mask = xr.Dataset()
+    ds_out_mask_transition = xr.Dataset()
 
     # read thickness of aquitards
     for name in ["DS11", "DS12", "DS13", "DS21", "DS22", "DS31"]:
@@ -670,16 +740,19 @@ def _read_thickness_of_aquitards(ds, pathname, m):
 
         gdf = gpd.read_file(fname)
         gdf.geometry = gdf.buffer(0)
-        ds_out[name] = nlmod.dims.gdf_to_da(
-            gdf, ds, column="VALUE", agg_method="area_weighted"
+        ds_out[name] = nlmod.dims.grid.gdf_to_da(
+            gdf, ds, column="VALUE", agg_method="area_weighted", ix=ix
         )
-    return ds_out
+        ds_out_mask[name] = ~np.isnan(ds_out[name])
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
+        ds_out_mask_transition[name] = in_transition & ~ds_out_mask[name]
+
+    return ds_out, ds_out_mask, ds_out_mask_transition
 
 
 @cache.cache_netcdf
-def _read_kd_of_aquifers(ds, pathname, m):
-    """read kd of aquifers
-
+def _read_kd_of_aquitards(ds, pathname, length_transition=100., ix=None):
+    """read kd of aquitards
 
     Parameters
     ----------
@@ -687,19 +760,25 @@ def _read_kd_of_aquifers(ds, pathname, m):
         xarray with model data
     pathname : str
         directory with model data.
-    m : flopy.modflow
-        modflow model.
+    length_transition : float, optional
+        length of transition zone, by default 100.
 
     Returns
     -------
     ds_out : xr.DataSet
         xarray dataset with 's11kd', 's12kd', 's13kd', 's21kd', 's22kd', 's31kd',
         's32kd' variables.
+    ds_out_mask : xr.DataSet
+        xarray dataset with True for all cells for which ds_out has valid data.
+    ds_out_mask_transition : xr.DataSet
+        xarray dataset with True for all cells in the transition zone.
 
     """
     logging.info("read kd of aquifers")
 
-    ds_out = nlmod.util.get_ds_empty(ds)
+    ds_out = xr.Dataset()
+    ds_out_mask = xr.Dataset()
+    ds_out_mask_transition = xr.Dataset()
 
     # read kD-waarden of aquifers
     for name in ["s11kd", "s12kd", "s13kd", "s21kd", "s22kd", "s31kd", "s32kd"]:
@@ -707,16 +786,19 @@ def _read_kd_of_aquifers(ds, pathname, m):
             pathname, "Bodemparams", "KDwaarden_aquitards", "{}.shp".format(name)
         )
         gdf = gpd.read_file(fname)
-        ds_out[name] = nlmod.dims.gdf_to_da(
+        ds_out[name] = nlmod.dims.grid.gdf_to_da(
             gdf, ds, column="VALUE", agg_method="nearest"
         )
-    return ds_out
+        ds_out_mask[name] = ~np.isnan(ds_out[name])
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
+        ds_out_mask_transition[name] = in_transition & ~ds_out_mask[name]
+
+    return ds_out, ds_out_mask, ds_out_mask_transition
 
 
 @cache.cache_netcdf
-def _read_mask_of_aquifers(ds, pathname, m):
+def _read_mask_of_aquifers(ds, pathname, length_transition=100., ix=None):
     """read mask of aquifers
-
 
     Parameters
     ----------
@@ -724,21 +806,29 @@ def _read_mask_of_aquifers(ds, pathname, m):
         xarray with model data
     pathname : str
         directory with model data.
-    m : flopy.modflow
-        modflow model.
+    length_transition : float, optional
+        length of transition zone, by default 100.
+    ix : GridIntersect, optional
+        If not provided it is computed from ds.
 
     Returns
     -------
     ds_out : xr.DataSet
         xarray dataset with '12', '13', '21', '22' variables.
-
+    ds_out_mask : xr.DataSet
+        xarray dataset with True for all cells for which ds_out has valid data.
+    ds_out_mask_transition : xr.DataSet
+        xarray dataset with True for all cells in the transition zone.
     """
     logging.info("read mask of aquifers")
 
-    ds_out = nlmod.util.get_ds_empty(ds)
+    ds_out = xr.Dataset()
+    ds_out_mask = xr.Dataset()
+    ds_out_mask_transition = xr.Dataset()
 
     # read masks of auifers
     for name in ["12", "13", "21", "22"]:
+        key = f"ms{name}kd"
         fname = os.path.join(
             pathname,
             "Bodemparams",
@@ -747,15 +837,18 @@ def _read_mask_of_aquifers(ds, pathname, m):
         )
         gdf = gpd.read_file(fname)
         gdf.geometry = gdf.buffer(0)
-        ds_out["ms{}kd".format(name)] = nlmod.dims.gdf_to_da(
-            gdf, ds, column="VALUE", agg_method="nearest"
+        ds_out[key] = nlmod.dims.gdf_to_da(
+            gdf, ds, column="VALUE", agg_method="nearest", ix=ix
         )
+        ds_out_mask[name] = ~np.isnan(ds_out[key])
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
+        ds_out_mask_transition[key] = in_transition & ~ds_out_mask[name]
 
-    return ds_out
+    return ds_out, ds_out_mask, ds_out_mask_transition
 
 
 @cache.cache_netcdf
-def _read_layer_kh(ds, pathname, m):
+def _read_layer_kh(ds, pathname, length_transition=100., ix=None):
     """read hydraulic conductivity of layers
 
     Parameters
@@ -764,19 +857,27 @@ def _read_layer_kh(ds, pathname, m):
         xarray with model data
     pathname : str
         directory with model data.
-    m : flopy.modflow
-        modflow model.
-
+    length_transition : float, optional
+        length of transition zone, by default 100.
+    ix : GridIntersect, optional
+        If not provided it is computed from ds.
+    
     Returns
     -------
     ds_out : xr.DataSet
         xarray dataset with 'KW11', 'KW12', 'KW13', 'KW21', 'KW22', 'KW31',
         'KW32' variables.
+    ds_out_mask : xr.DataSet
+        xarray dataset with True for all cells for which ds_out has valid data.
+    ds_out_mask_transition : xr.DataSet
+        xarray dataset with True for all cells in the transition zone.
 
     """
     logging.info("read hydraulic conductivity of layers")
 
-    ds_out = nlmod.util.get_ds_empty(ds)
+    ds_out = xr.Dataset()
+    ds_out_mask = xr.Dataset()
+    ds_out_mask_transition = xr.Dataset()
 
     # read hydraulic conductivity of layers
     for name in ["KW11", "KW12", "KW13", "KW21", "KW22", "KW31", "KW32"]:
@@ -787,11 +888,15 @@ def _read_layer_kh(ds, pathname, m):
         ds_out[name] = nlmod.dims.gdf_to_da(
             gdf, ds, column="VALUE", agg_method="area_weighted"
         )
-    return ds_out
+        ds_out_mask[name] = ~np.isnan(ds_out[name])
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
+        ds_out_mask_transition[name] = in_transition & ~ds_out_mask[name]
+
+    return ds_out, ds_out_mask, ds_out_mask_transition
 
 
 @cache.cache_netcdf
-def _read_kv_area(ds, pathname, m):
+def _read_kv_area(ds, pathname, length_transition=100., ix=None):
     """read vertical resistance of layers
 
     Parameters
@@ -800,19 +905,26 @@ def _read_kv_area(ds, pathname, m):
         xarray with model data
     pathname : str
         directory with model data.
-    m : flopy.modflow
-        modflow model.
+    length_transition : float, optional
+        length of transition zone, by default 100.
+    ix : GridIntersect, optional
+        If not provided it is computed from ds.
 
     Returns
     -------
     ds_out : xr.DataSet
         xarray dataset with 'C11AREA', 'C12AREA', 'C13AREA', 'C21AREA',
         'C22AREA', 'C31AREA', 'C32AREA' variables.
-
+    ds_out_mask : xr.DataSet
+        xarray dataset with True for all cells for which ds_out has valid data.
+    ds_out_mask_transition : xr.DataSet
+        xarray dataset with True for all cells in the transition zone.
     """
     logging.info("read vertical resistance of layers")
 
-    ds_out = nlmod.util.get_ds_empty(ds)
+    ds_out = xr.Dataset()
+    ds_out_mask = xr.Dataset()
+    ds_out_mask_transition = xr.Dataset()
 
     # read vertical resistance per area
     for name in [
@@ -854,20 +966,22 @@ def _read_kv_area(ds, pathname, m):
                 gdf2.loc[i, "geometry"] = gdf.loc[i, "geometry"]
             gdf = gdf2
 
-        da = nlmod.dims.gdf_to_da(gdf, ds, column="VALUE", agg_method="nearest")
+        ds_out[name] = nlmod.dims.gdf_to_da(gdf, ds, column="VALUE", agg_method="nearest", ix=ix)
 
-        nanmask = np.isnan(da)
+        nanmask = np.isnan(ds_out[name])
         if name == "C11AREA":
-            da.values[nanmask] = 1.0
+            ds_out[name].values[nanmask] = 1.0
         else:
-            da.values[nanmask] = 10.0
-        ds_out[name] = da
+            ds_out[name].values[nanmask] = 10.0
 
-    return ds_out
+        ds_out_mask[name] = xr.ones_like(ds_out[name], dtype=bool)
+        ds_out_mask_transition[name] = xr.zeros_like(ds_out[name], dtype=bool)
+
+    return ds_out, ds_out_mask, ds_out_mask_transition
 
 
 @cache.cache_netcdf
-def _read_topsysteem(ds, pathname, m):
+def _read_topsysteem(ds, pathname):
     """read topsysteem
 
     Parameters
@@ -876,8 +990,6 @@ def _read_topsysteem(ds, pathname, m):
         xarray with model data
     pathname : str
         directory with model data.
-    m : flopy.modflow
-        modflow model.
 
     Returns
     -------
@@ -888,7 +1000,7 @@ def _read_topsysteem(ds, pathname, m):
     """
     logging.info("read topsysteem")
 
-    ds_out = nlmod.util.get_ds_empty(ds)
+    ds_out = xr.Dataset()
 
     # read surface level
     fname = os.path.join(pathname, "Topsyst", "mvpolder2007.shp")
@@ -954,7 +1066,7 @@ def _read_zout(ds, pathname2, m):
     """
     logging.info("read zout")
 
-    ds_out = nlmod.util.get_ds_empty(ds)
+    ds_out = xr.Dataset()
 
     # read data from BasisbestandenNHDZmodelPWN_CvG_20180910
     fname = os.path.join(pathname2, "Zout", "diepte_grensvlak_zoet_brakofzout.shp")
@@ -975,7 +1087,7 @@ def _read_zout(ds, pathname2, m):
 
 
 @cache.cache_netcdf
-def _read_bodemparams(ds, pathname2, m):
+def _read_bodemparams(ds, pathname2):
     """read bodemparams
 
     Parameters
@@ -984,8 +1096,6 @@ def _read_bodemparams(ds, pathname2, m):
         xarray with model data
     pathname : str
         directory with model data.
-    m : flopy.modflow
-        modflow model.
 
     Returns
     -------
@@ -996,7 +1106,7 @@ def _read_bodemparams(ds, pathname2, m):
     """
     logging.info("read bodem parameters")
 
-    ds_out = nlmod.util.get_ds_empty(ds)
+    ds_out = xr.Dataset()
 
     fname = os.path.join(
         pathname2, "Bodemparams", "Cwaarden_aquitards", "vlakborgebruiken.shp"
@@ -1023,7 +1133,7 @@ def _read_bodemparams(ds, pathname2, m):
 
 
 @cache.cache_netcdf
-def _read_fluzo(ds, datadir, m):
+def _read_fluzo(ds, datadir):
     """read fluzo
 
     Parameters
@@ -1043,7 +1153,7 @@ def _read_fluzo(ds, datadir, m):
     """
     logging.info("read fluzo")
 
-    ds_out = nlmod.util.get_ds_empty(ds)
+    ds_out = xr.Dataset()
 
     # read FLUZO-result
     if datadir is None:
