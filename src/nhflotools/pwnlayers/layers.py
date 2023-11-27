@@ -90,10 +90,13 @@ def combine_two_layer_models(
         df_koppeltabel[koppeltabel_header_regis]
         .isin(layer_model_regis.layer.values)
         .all()
-    ), "Not all REGIS layers are in the koppeltabel"
+    ), (
+        "Not all REGIS layers of the koppeltabel are in layer_model_regis. Make sure you set "
+        "remove_nan_layers=False when refining the grid and in nlmod.to_model_ds()."
+    )
     assert (
         df_koppeltabel[koppeltabel_header_pwn].isin(layer_model_pwn.layer.values).all()
-    ), "Not all PWN layers are in the koppeltabel"
+    ), "Not all PWN layers of the koppeltabel are in layer_model_pwn"
     assert all(var in layer_model_regis.variables for var in ["kh", "kv", "botm", "top"]), (
         "Variable 'kh', 'kv', 'botm', or 'top' is missing in layer_model_regis"
     )
