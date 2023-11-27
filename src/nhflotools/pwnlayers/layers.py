@@ -105,6 +105,8 @@ def combine_two_layer_models(
             "Variable 'kh', 'kv', or 'botm' is missing in transition_model_pwn"
         )
 
+    logger.info("Combining layer models")
+
     df_koppeltabel = df_koppeltabel.copy()
 
     # Only select part of the table that appears in the two layer models
@@ -150,6 +152,7 @@ def combine_two_layer_models(
     thick_pwn_split = nlmod.dims.layers.calculate_thickness(layer_model_pwn_split)
 
     # Adjust the botm of the newly split REGIS layers
+    logger.info("Adjusting the botm of the newly split REGIS layers")
     for name, group in df_koppeltabel.groupby(koppeltabel_header_regis):
         layers = group["Regis_split"].values
 
@@ -204,6 +207,7 @@ def combine_two_layer_models(
         layer_model_top_split["botm"].loc[{"layer": layers}] = botm_split
 
     # Adjust the botm of the newly split PWN layers
+    logger.info("Adjusting the botm of the newly split PWN layers")
     for name, group in df_koppeltabel.groupby(koppeltabel_header_pwn):
         if len(group) == 1:
             continue
@@ -264,6 +268,7 @@ def combine_two_layer_models(
         layer_model_pwn_split["botm"].loc[{"layer": layers}] = botm_split
 
     # Merge the two layer models
+    logger.info("Merging the two layer models")
     layer_model_top = xr.Dataset(
         {
             "botm": xr.where(
@@ -290,6 +295,7 @@ def combine_two_layer_models(
 
     # introduce transition of layers
     if transition_model_pwn is not None:
+        logger.info("Linear interpolation of transition region inbetween the two layer models")
         transition_model_pwn_split = transition_model_pwn.sel(
             layer=df_koppeltabel[koppeltabel_header_pwn].values
         ).assign_coords(layer=df_koppeltabel["Regis_split"].values)
@@ -325,6 +331,8 @@ def combine_two_layer_models(
                 )
 
                 var.loc[{"layer": layer, "icell2d": transi}] = qvalues
+    else:
+        logger.info("No transition of the two layer models")
 
     layer_model_out = xr.concat((layer_model_top, layer_model_bothalf), dim="layer")
     layer_model_out["top"] = layer_model_regis["top"]
