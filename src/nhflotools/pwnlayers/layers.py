@@ -355,7 +355,7 @@ def combine_two_layer_models(
     return layer_model_out, cat
 
 
-def get_thickness(data, mask=False):
+def get_thickness(data, mask=False, transition=False):
     """
     Calculate the thickness of layers in a given dataset.
 
@@ -366,6 +366,8 @@ def get_thickness(data, mask=False):
     mask : bool, optional
         If True, returns a boolean mask indicating the valid thickness values.
         If False, returns the thickness values directly. Default is False.
+    transition : bool, optional
+        If True, treat data as a mask with True for transition cells. Default is False.
 
     Returns
     -------
@@ -376,13 +378,21 @@ def get_thickness(data, mask=False):
     """
     if mask:
         a = data.where(data, np.nan)
+        def n(s):
+            return f"{s}_mask"
+    elif transition:
+        a = data.where(data, np.nan)
+        def n(s):
+            return f"{s}_transition"
     else:
         a = data
+        def n(s):
+            return s
 
     botm = get_botm(a, mask=False)
 
     if "top" in data.data_vars:
-        top_botm = xr.concat((a["top"], botm), dim="layer")
+        top_botm = xr.concat((a[n("top")], botm), dim="layer")
     else:
         top_botm = xr.concat(
             (xr.full_like(botm.isel(layer=0), fill_value=np.nan, dtype=float), botm),
@@ -397,7 +407,7 @@ def get_thickness(data, mask=False):
         return out
 
 
-def get_kh(data, mask=False, anisotropy=5.0):
+def get_kh(data, mask=False, anisotropy=5.0, transition=False):
     """
     Calculate the hydraulic conductivity (kh) based on the given data.
 
@@ -409,6 +419,8 @@ def get_kh(data, mask=False, anisotropy=5.0):
         Flag indicating whether to apply a mask to the data. Default is False.
     anisotropy : float, optional
         Anisotropy factor to be applied to the aquitard layers. Default is 5.0.
+    transition : bool, optional
+        Flag indicating whether to treat data as a mask with True for transition cells.
 
     Returns
     -------
@@ -422,43 +434,52 @@ def get_kh(data, mask=False, anisotropy=5.0):
     if mask:
         a = data.where(data, np.nan)
         b = thickness.where(thickness, np.nan)
+        def n(s):
+            return f"{s}_mask"
+    elif transition:
+        a = data.where(data, np.nan)
+        b = thickness.where(thickness, np.nan)
+        def n(s):
+            return f"{s}_transition"
     else:
         a = data
         b = thickness
+        def n(s):
+            return s
 
     out = xr.concat(
         (
-            a["KW11"],  # Aquifer 11
-            b.isel(layer=1) / a["C11AREA"] * anisotropy,  # Aquitard 11
-            a["KW12"],  # Aquifer 12
-            b.isel(layer=3) / a["C12AREA"] * anisotropy,  # Aquitard 12
-            a["KW13"],  # Aquifer 13
-            b.isel(layer=5) / a["C13AREA"] * anisotropy,  # Aquitard 13
-            a["KW21"],  # Aquifer 21
-            b.isel(layer=7) / a["C21AREA"] * anisotropy,  # Aquitard 21
-            a["KW22"],  # Aquifer 22
-            b.isel(layer=9) / a["C22AREA"] * anisotropy,  # Aquitard 22
-            a["KW31"],  # Aquifer 31
-            b.isel(layer=11) / a["C31AREA"] * anisotropy,  # Aquitard 31
-            a["KW32"],  # Aquifer 32
-            b.isel(layer=13) / a["C32AREA"] * anisotropy,  # Aquitard 32
+            a[n("KW11")],  # Aquifer 11
+            b.isel(layer=1) / a[n("C11AREA")] * anisotropy,  # Aquitard 11
+            a[n("KW12")],  # Aquifer 12
+            b.isel(layer=3) / a[n("C12AREA")] * anisotropy,  # Aquitard 12
+            a[n("KW13")],  # Aquifer 13
+            b.isel(layer=5) / a[n("C13AREA")] * anisotropy,  # Aquitard 13
+            a[n("KW21")],  # Aquifer 21
+            b.isel(layer=7) / a[n("C21AREA")] * anisotropy,  # Aquitard 21
+            a[n("KW22")],  # Aquifer 22
+            b.isel(layer=9) / a[n("C22AREA")] * anisotropy,  # Aquitard 22
+            a[n("KW31")],  # Aquifer 31
+            b.isel(layer=11) / a[n("C31AREA")] * anisotropy,  # Aquitard 31
+            a[n("KW32")],  # Aquifer 32
+            b.isel(layer=13) / a[n("C32AREA")] * anisotropy,  # Aquitard 32
         ),
         dim="layer",
     )
 
     s12k = (
-        a["s12kd"] * (a["ms12kd"] == 1)
-        + 0.5 * a["s12kd"] * (a["ms12kd"] == 2)
-        + 3 * a["s12kd"] * (a["ms12kd"] == 3)
+        a[n("s12kd")] * (a[n("ms12kd")] == 1)
+        + 0.5 * a[n("s12kd")] * (a[n("ms12kd")] == 2)
+        + 3 * a[n("s12kd")] * (a[n("ms12kd")] == 3)
     ) / b.isel(layer=3)
-    s13k = a["s13kd"] * (a["ms13kd"] == 1) + 1.12 * a["s13kd"] * (
-        a["ms13kd"] == 2
+    s13k = a[n("s13kd")] * (a[n("ms13kd")] == 1) + 1.12 * a[n("s13kd")] * (
+        a[n("ms13kd")] == 2
     ) / b.isel(layer=5)
-    s21k = a["s21kd"] * (a["ms21kd"] == 1) + a["s21kd"] * (a["ms21kd"] == 2) / b.isel(
+    s21k = a[n("s21kd")] * (a[n("ms21kd")] == 1) + a[n("s21kd")] * (a[n("ms21kd")] == 2) / b.isel(
         layer=7
     )
-    s22k = 2 * a["s22kd"] * (a["ms22kd"] == 1) + a["s22kd"] * (
-        a["ms22kd"] == 1
+    s22k = 2 * a[n("s22kd")] * (a[n("ms22kd")] == 1) + a[n("s22kd")] * (
+        a[n("ms22kd")] == 1
     ) / b.isel(layer=9)
 
     out.loc[{"layer": 3}] = out.loc[{"layer": 3}].where(np.isnan(s12k), other=s12k)
@@ -472,7 +493,7 @@ def get_kh(data, mask=False, anisotropy=5.0):
         return out
 
 
-def get_kv(data, mask=False, anisotropy=5.0):
+def get_kv(data, mask=False, anisotropy=5.0, transition=False):
     """
     Calculate the hydraulic conductivity (KV) for different aquifers and aquitards.
 
@@ -502,26 +523,35 @@ def get_kv(data, mask=False, anisotropy=5.0):
     if mask:
         a = data.where(data, np.nan)
         b = thickness.where(thickness, np.nan)
+        def n(s):
+            return f"{s}_mask"
+    elif transition:
+        a = data.where(data, np.nan)
+        b = thickness.where(thickness, np.nan)
+        def n(s):
+            return f"{s}_transition"
     else:
         a = data
         b = thickness
+        def n(s):
+            return s
 
     out = xr.concat(
         (
-            a["KW11"] / anisotropy,  # Aquifer 11
-            b.isel(layer=1) / a["C11AREA"],  # Aquitard 11
-            a["KW12"] / anisotropy,  # Aquifer 12
-            b.isel(layer=3) / a["C12AREA"],  # Aquitard 12
-            a["KW13"] / anisotropy,  # Aquifer 13
-            b.isel(layer=5) / a["C13AREA"],  # Aquitard 13
-            a["KW21"] / anisotropy,  # Aquifer 21
-            b.isel(layer=7) / a["C21AREA"],  # Aquitard 21
-            a["KW22"] / anisotropy,  # Aquifer 22
-            b.isel(layer=9) / a["C22AREA"],  # Aquitard 22
-            a["KW31"] / anisotropy,  # Aquifer 31
-            b.isel(layer=11) / a["C31AREA"],  # Aquitard 31
-            a["KW32"] / anisotropy,  # Aquifer 32
-            b.isel(layer=13) / a["C32AREA"],  # Aquitard 32
+            a[n("KW11")] / anisotropy,  # Aquifer 11
+            b.isel(layer=1) / a[n("C11AREA")],  # Aquitard 11
+            a[n("KW12")] / anisotropy,  # Aquifer 12
+            b.isel(layer=3) / a[n("C12AREA")],  # Aquitard 12
+            a[n("KW13")] / anisotropy,  # Aquifer 13
+            b.isel(layer=5) / a[n("C13AREA")],  # Aquitard 13
+            a[n("KW21")] / anisotropy,  # Aquifer 21
+            b.isel(layer=7) / a[n("C21AREA")],  # Aquitard 21
+            a[n("KW22")] / anisotropy,  # Aquifer 22
+            b.isel(layer=9) / a[n("C22AREA")],  # Aquitard 22
+            a[n("KW31")] / anisotropy,  # Aquifer 31
+            b.isel(layer=11) / a[n("C31AREA")],  # Aquitard 31
+            a[n("KW32")] / anisotropy,  # Aquifer 32
+            b.isel(layer=13) / a[n("C32AREA")],  # Aquitard 32
         ),
         dim="layer",
     )
@@ -531,7 +561,7 @@ def get_kv(data, mask=False, anisotropy=5.0):
         return out
 
 
-def get_botm(data, mask=False):
+def get_botm(data, mask=False, transition=False):
     """
     Calculate the bottom elevation of each layer in the model.
 
@@ -544,29 +574,38 @@ def get_botm(data, mask=False):
     -------
     out (xarray.DataArray): Array containing the bottom elevation of each layer.
     """
-
     if mask:
         a = data.where(data, np.nan)
+        def n(s):
+            return f"{s}_mask"
+
+    elif transition:
+        a = data.where(data, np.nan)
+        def n(s):
+            return f"{s}_transition"
+
     else:
         a = data
+        def n(s):
+            return s
 
     out = xr.concat(
         (
-            a["TS11"],  # Base aquifer 11
-            a["TS11"] - a["DS11"],  # Base aquitard 11
-            a["TS12"],  # Base aquifer 12
-            a["TS12"] - a["DS12"],  # Base aquitard 12
-            a["TS13"],  # Base aquifer 13
-            a["TS13"] - a["DS13"],  # Base aquitard 13
-            a["TS21"],  # Base aquifer 21
-            a["TS21"] - a["DS21"],  # Base aquitard 21
-            a["TS22"],  # Base aquifer 22
-            a["TS22"] - a["DS22"],  # Base aquitard 22
-            a["TS31"],  # Base aquifer 31
-            a["TS31"] - a["DS31"],  # Base aquitard 31
-            a["TS32"],  # Base aquifer 32
-            a["TS32"] - 5.0,  # Base aquitard 33
-            # a["TS32"] - 105., # Base aquifer 41
+            a[n("TS11")],  # Base aquifer 11
+            a[n("TS11")] - a[n("DS11")],  # Base aquitard 11
+            a[n("TS12")],  # Base aquifer 12
+            a[n("TS12")] - a[n("DS12")],  # Base aquitard 12
+            a[n("TS13")],  # Base aquifer 13
+            a[n("TS13")] - a[n("DS13")],  # Base aquitard 13
+            a[n("TS21")],  # Base aquifer 21
+            a[n("TS21")] - a[n("DS21")],  # Base aquitard 21
+            a[n("TS22")],  # Base aquifer 22
+            a[n("TS22")] - a[n("DS22")],  # Base aquitard 22
+            a[n("TS31")],  # Base aquifer 31
+            a[n("TS31")] - a[n("DS31")],  # Base aquitard 31
+            a[n("TS32")],  # Base aquifer 32
+            a[n("TS32")] - 5.0,  # Base aquitard 33
+            # a[n("TS32")] - 105., # Base aquifer 41
         ),
         dim="layer",
     )
@@ -576,9 +615,10 @@ def get_botm(data, mask=False):
         return out
 
 
-def get_pwn_layer_model(ds, data_path, length_transition=100.0):
-    pwn, pwn_mask, pwn_mask_transition = read_pwn_data2(
-        ds, datadir=data_path, length_transition=length_transition
+def get_pwn_layer_model(ds, data_path, length_transition=100.0, cachedir=None):
+    pwn = read_pwn_data2(
+        ds, datadir=data_path, length_transition=length_transition,
+    cachedir=cachedir,
     )
     translate_triwaco_names_to_index = {
         "W11": 0,
@@ -613,9 +653,10 @@ def get_pwn_layer_model(ds, data_path, length_transition=100.0):
     )
     transition_model_pwn = xr.Dataset(
         {
-            "botm": get_botm(pwn_mask_transition, mask=True),
-            "kh": get_kh(pwn_mask_transition, mask=True),
-            "kv": get_kv(pwn_mask_transition, mask=True),
+            "top": pwn["top_transition"],
+            "botm": get_botm(pwn, mask=False, transition=True),
+            "kh": get_kh(pwn, mask=False, transition=True),
+            "kv": get_kv(pwn, mask=False, transition=True),
         },
         coords={"layer": list(translate_triwaco_names_to_index.keys())},
     )
@@ -652,8 +693,6 @@ def read_pwn_data2(ds, datadir=None, length_transition=100.0, cachedir=None):
     intersect_kwargs = dict()
 
     ds_out = xr.Dataset()
-    ds_mask = xr.Dataset()
-    ds_mask_transition = xr.Dataset()
 
     functions = [
         _read_top_of_aquitards,
@@ -667,7 +706,7 @@ def read_pwn_data2(ds, datadir=None, length_transition=100.0, cachedir=None):
     for func in functions:
         logger.info(f"Gathering PWN layer info with: {func.__name__}")
 
-        out, mask, mask_transition = func(
+        out = func(
             ds,
             datadir,
             length_transition=length_transition,
@@ -677,15 +716,13 @@ def read_pwn_data2(ds, datadir=None, length_transition=100.0, cachedir=None):
             **intersect_kwargs,
         )
         ds_out.update(out)
-        ds_mask.update(mask)
-        ds_mask_transition.update(mask_transition)
 
     # Add top from ds
     ds_out["top"] = ds["top"]
-    ds_mask["top"] = xr.ones_like(ds["top"], dtype=bool)
-    ds_mask_transition["top"] = xr.zeros_like(ds["top"], dtype=bool)
+    ds_out["top_mask"] = xr.ones_like(ds["top"], dtype=bool)
+    ds_out["top_transition"] = xr.zeros_like(ds["top"], dtype=bool)
 
-    return ds_out, ds_mask, ds_mask_transition
+    return ds_out
 
 
 def get_overlap_model_layers(

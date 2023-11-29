@@ -681,8 +681,6 @@ def _read_top_of_aquitards(ds, pathname, length_transition=100., ix=None):
     logging.info("read top of aquitards")
 
     ds_out = xr.Dataset()
-    ds_out_mask = xr.Dataset()
-    ds_out_mask_transition = xr.Dataset()
 
     for name in ["TS11", "TS12", "TS13", "TS21", "TS22", "TS31", "TS32"]:
         fname = os.path.join(
@@ -693,11 +691,11 @@ def _read_top_of_aquitards(ds, pathname, length_transition=100., ix=None):
         ds_out[name] = nlmod.dims.grid.gdf_to_da(
             gdf, ds, column="VALUE", agg_method="area_weighted", ix=ix
         )
-        ds_out_mask[name] = ~np.isnan(ds_out[name])
+        ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
         in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
-        ds_out_mask_transition[name] = in_transition & ~ds_out_mask[name]
+        ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
 
-    return ds_out, ds_out_mask, ds_out_mask_transition
+    return ds_out
 
 
 @cache.cache_netcdf
@@ -729,8 +727,6 @@ def _read_thickness_of_aquitards(ds, pathname, length_transition=100., ix=None):
     logging.info("read thickness of aquitards")
 
     ds_out = xr.Dataset()
-    ds_out_mask = xr.Dataset()
-    ds_out_mask_transition = xr.Dataset()
 
     # read thickness of aquitards
     for name in ["DS11", "DS12", "DS13", "DS21", "DS22", "DS31"]:
@@ -743,11 +739,11 @@ def _read_thickness_of_aquitards(ds, pathname, length_transition=100., ix=None):
         ds_out[name] = nlmod.dims.grid.gdf_to_da(
             gdf, ds, column="VALUE", agg_method="area_weighted", ix=ix
         )
-        ds_out_mask[name] = ~np.isnan(ds_out[name])
+        ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
         in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
-        ds_out_mask_transition[name] = in_transition & ~ds_out_mask[name]
+        ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
 
-    return ds_out, ds_out_mask, ds_out_mask_transition
+    return ds_out
 
 
 @cache.cache_netcdf
@@ -777,8 +773,6 @@ def _read_kd_of_aquitards(ds, pathname, length_transition=100., ix=None):
     logging.info("read kd of aquifers")
 
     ds_out = xr.Dataset()
-    ds_out_mask = xr.Dataset()
-    ds_out_mask_transition = xr.Dataset()
 
     # read kD-waarden of aquifers
     for name in ["s11kd", "s12kd", "s13kd", "s21kd", "s22kd", "s31kd", "s32kd"]:
@@ -789,11 +783,11 @@ def _read_kd_of_aquitards(ds, pathname, length_transition=100., ix=None):
         ds_out[name] = nlmod.dims.grid.gdf_to_da(
             gdf, ds, column="VALUE", agg_method="nearest"
         )
-        ds_out_mask[name] = ~np.isnan(ds_out[name])
+        ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
         in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
-        ds_out_mask_transition[name] = in_transition & ~ds_out_mask[name]
+        ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
 
-    return ds_out, ds_out_mask, ds_out_mask_transition
+    return ds_out
 
 
 @cache.cache_netcdf
@@ -823,8 +817,6 @@ def _read_mask_of_aquifers(ds, pathname, length_transition=100., ix=None):
     logging.info("read mask of aquifers")
 
     ds_out = xr.Dataset()
-    ds_out_mask = xr.Dataset()
-    ds_out_mask_transition = xr.Dataset()
 
     # read masks of auifers
     for name in ["12", "13", "21", "22"]:
@@ -840,11 +832,11 @@ def _read_mask_of_aquifers(ds, pathname, length_transition=100., ix=None):
         ds_out[key] = nlmod.dims.gdf_to_da(
             gdf, ds, column="VALUE", agg_method="nearest", ix=ix
         )
-        ds_out_mask[name] = ~np.isnan(ds_out[key])
+        ds_out[f"{key}_mask"] = ~np.isnan(ds_out[key])
         in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
-        ds_out_mask_transition[key] = in_transition & ~ds_out_mask[name]
+        ds_out[f"{key}_transition"] = in_transition & ~ds_out[f"{key}_mask"]
 
-    return ds_out, ds_out_mask, ds_out_mask_transition
+    return ds_out
 
 
 @cache.cache_netcdf
@@ -876,8 +868,6 @@ def _read_layer_kh(ds, pathname, length_transition=100., ix=None):
     logging.info("read hydraulic conductivity of layers")
 
     ds_out = xr.Dataset()
-    ds_out_mask = xr.Dataset()
-    ds_out_mask_transition = xr.Dataset()
 
     # read hydraulic conductivity of layers
     for name in ["KW11", "KW12", "KW13", "KW21", "KW22", "KW31", "KW32"]:
@@ -888,11 +878,11 @@ def _read_layer_kh(ds, pathname, length_transition=100., ix=None):
         ds_out[name] = nlmod.dims.gdf_to_da(
             gdf, ds, column="VALUE", agg_method="area_weighted"
         )
-        ds_out_mask[name] = ~np.isnan(ds_out[name])
+        ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
         in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
-        ds_out_mask_transition[name] = in_transition & ~ds_out_mask[name]
+        ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
 
-    return ds_out, ds_out_mask, ds_out_mask_transition
+    return ds_out
 
 
 @cache.cache_netcdf
@@ -923,8 +913,6 @@ def _read_kv_area(ds, pathname, length_transition=100., ix=None):
     logging.info("read vertical resistance of layers")
 
     ds_out = xr.Dataset()
-    ds_out_mask = xr.Dataset()
-    ds_out_mask_transition = xr.Dataset()
 
     # read vertical resistance per area
     for name in [
@@ -974,10 +962,10 @@ def _read_kv_area(ds, pathname, length_transition=100., ix=None):
         else:
             ds_out[name].values[nanmask] = 10.0
 
-        ds_out_mask[name] = xr.ones_like(ds_out[name], dtype=bool)
-        ds_out_mask_transition[name] = xr.zeros_like(ds_out[name], dtype=bool)
+        ds_out[f"{name}_mask"] = xr.ones_like(ds_out[name], dtype=bool)
+        ds_out[f"{name}_transition"] = xr.zeros_like(ds_out[name], dtype=bool)
 
-    return ds_out, ds_out_mask, ds_out_mask_transition
+    return ds_out
 
 
 @cache.cache_netcdf
