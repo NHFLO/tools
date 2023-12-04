@@ -1,23 +1,13 @@
 import logging
+import os
 
 import geopandas as gpd
 import nlmod
 import numpy as np
-import pandas as pd
-from flopy.utils.gridintersect import GridIntersect
-from shapely.geometry import LineString
-from shapely.geometry import Polygon
-
-from nhflotools.pwnlayers.utils import _read_kd_of_aquitards
-from nhflotools.pwnlayers.utils import _read_kv_area
-from nhflotools.pwnlayers.utils import _read_layer_kh
-from nhflotools.pwnlayers.utils import _read_mask_of_aquifers
-from nhflotools.pwnlayers.utils import _read_thickness_of_aquitards
-from nhflotools.pwnlayers.utils import _read_top_of_aquitards
-from nhflotools.pwnlayers.utils import compare_layer_models_top_view
-
-from scipy.interpolate import griddata
 import xarray as xr
+from flopy.utils.gridintersect import GridIntersect
+from nlmod import cache
+from scipy.interpolate import griddata
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +25,7 @@ def combine_two_layer_models(
 
     The values of the PWN layer model are used where the layer_model_pwn is not nan.
     The values of the REGISII layer model are used where the layer_model_pwn is nan
-    and transition_model_pwn is False. The remaining values are where the 
+    and transition_model_pwn is False. The remaining values are where the
     transition_model_pwn is True. Those values are linearly interpolated from the
     REGISII layer model to the PWN layer model.
 
@@ -65,7 +55,7 @@ def combine_two_layer_models(
     transition_model_pwn : xarray Dataset, optional
         Dataset containing the transition model of PWN. It should contain
         the variables 'kh', 'kv', 'botm'. The default is None.
-        It should be True where the transition between layer_model_regis and layer_model_pwn 
+        It should be True where the transition between layer_model_regis and layer_model_pwn
         is defined and False where it is not. Where True, the values of are linearly interpolated
         from the REGISII layer model to the PWN layer model. If None, the transition is not used.
     koppeltabel_header_regis : str, optional
@@ -97,16 +87,22 @@ def combine_two_layer_models(
     assert (
         df_koppeltabel[koppeltabel_header_pwn].isin(layer_model_pwn.layer.values).all()
     ), "Not all PWN layers of the koppeltabel are in layer_model_pwn"
-    assert all(var in layer_model_regis.variables for var in ["kh", "kv", "botm", "top"]), (
-        "Variable 'kh', 'kv', 'botm', or 'top' is missing in layer_model_regis"
-    )
-    assert all(var in layer_model_pwn.variables for var in ["kh", "kv", "botm", "top"]), (
-        "Variable 'kh', 'kv', 'botm', or 'top' is missing in layer_model_pwn"
-    )
+    assert all(
+        var in layer_model_regis.variables for var in ["kh", "kv", "botm", "top"]
+    ), "Variable 'kh', 'kv', 'botm', or 'top' is missing in layer_model_regis"
+    assert all(
+        var in layer_model_pwn.variables for var in ["kh", "kv", "botm", "top"]
+    ), "Variable 'kh', 'kv', 'botm', or 'top' is missing in layer_model_pwn"
     if transition_model_pwn is not None:
-        assert all(var in transition_model_pwn.variables for var in ["kh", "kv", "botm"]), (
-            "Variable 'kh', 'kv', or 'botm' is missing in transition_model_pwn"
-        )
+        assert all(
+            var in transition_model_pwn.variables for var in ["kh", "kv", "botm"]
+        ), "Variable 'kh', 'kv', or 'botm' is missing in transition_model_pwn"
+        assert all(
+            [
+                np.issubdtype(dtype, bool)
+                for dtype in transition_model_pwn.dtypes.values()
+            ]
+        ), "Variable 'kh', 'kv', and 'botm' in transition_model_pwn should be boolean"
 
     logger.info("Combining layer models")
 
@@ -298,7 +294,9 @@ def combine_two_layer_models(
 
     # introduce transition of layers
     if transition_model_pwn is not None:
-        logger.info("Linear interpolation of transition region inbetween the two layer models")
+        logger.info(
+            "Linear interpolation of transition region inbetween the two layer models"
+        )
         transition_model_pwn_split = transition_model_pwn.sel(
             layer=df_koppeltabel[koppeltabel_header_pwn].values
         ).assign_coords(layer=df_koppeltabel["Regis_split"].values)
@@ -345,9 +343,15 @@ def combine_two_layer_models(
     # 2: pwn
     # 3: transition
     cat_top = xr.zeros_like(layer_model_top[["botm", "kh", "kv"]], dtype=int)
-    cat_top = cat_top.where(cond=~np.isnan(layer_model_pwn_split[["botm", "kh", "kv"]]), other=1)
-    cat_top = cat_top.where(cond=np.isnan(layer_model_pwn_split[["botm", "kh", "kv"]]), other=2)
-    cat_top = cat_top.where(cond=~transition_model_pwn_split[["botm", "kh", "kv"]], other=3)
+    cat_top = cat_top.where(
+        cond=~np.isnan(layer_model_pwn_split[["botm", "kh", "kv"]]), other=1
+    )
+    cat_top = cat_top.where(
+        cond=np.isnan(layer_model_pwn_split[["botm", "kh", "kv"]]), other=2
+    )
+    cat_top = cat_top.where(
+        cond=~transition_model_pwn_split[["botm", "kh", "kv"]], other=3
+    )
 
     cat_botm = xr.ones_like(layer_model_bothalf[["botm", "kh", "kv"]], dtype=int)
     cat = xr.concat((cat_top, cat_botm), dim="layer")
@@ -358,6 +362,21 @@ def combine_two_layer_models(
 def get_thickness(data, mask=False, transition=False):
     """
     Calculate the thickness of layers in a given dataset.
+
+    If mask is True, the function returns a boolean mask indicating the valid
+    thickness values, requiering all dependent values to be valid. 
+    If transisition is True, the function returns a boolean mask indicating the
+    cells for which any of the dependent values is marked as a transition.
+
+    The masks are computated with nan's for False, so that if any of the dependent
+    values is nan, the mask_float will be nan and mask will be False.
+    The transitions are computed with nan's for True, so that if any of the dependent
+    values is nan, the transition_float will be nan and transition will be True. 
+
+    If the dataset contains a variable 'top', the thickness is calculated
+    from the difference between the top and bottom of each layer. If the
+    dataset does not contain a variable 'top', the thickness is calculated
+    from the difference between the bottoms.
 
     Parameters
     ----------
@@ -376,33 +395,46 @@ def get_thickness(data, mask=False, transition=False):
         If mask is False, returns the thickness values as a DataArray or ndarray.
 
     """
+    botm = get_botm(data, mask=mask, transition=transition)
+
     if mask:
-        a = data.where(data, np.nan)
+        _a = data[[var for var in data.variables if var.endswith("_mask")]]
+        a = _a.where(_a, other=np.nan)
+        botm_nodata_isnan = botm.where(botm, other=np.nan)
         def n(s):
             return f"{s}_mask"
     elif transition:
-        a = data.where(data, np.nan)
+        # note the ~ operator
+        _a = data[[var for var in data.variables if var.endswith("_transition")]]
+        a = _a.where(~_a, other=np.nan).where(_a, 1.0)
+        botm_nodata_isnan = botm.where(~botm, other=np.nan)
+
         def n(s):
             return f"{s}_transition"
     else:
         a = data
+        botm_nodata_isnan = botm
+
         def n(s):
             return s
 
-    botm = get_botm(a, mask=False)
-
     if "top" in data.data_vars:
-        top_botm = xr.concat((a[n("top")], botm), dim="layer")
+        top_botm = xr.concat((a[n("top")], botm_nodata_isnan), dim="layer")
     else:
-        top_botm = xr.concat(
-            (xr.full_like(botm.isel(layer=0), fill_value=np.nan, dtype=float), botm),
-            dim="layer",
-        )
+        top_botm = botm
 
     out = top_botm.diff(dim="layer")
 
     if mask:
         return ~np.isnan(out)
+    elif transition:
+        mask = get_thickness(data, mask=True, transition=False)
+        transition = np.isnan(out)
+        check = mask.astype(int) + transition.astype(int)
+        assert (check <= 1).all(), (
+            "Transition cells should not overlap with mask."
+        )
+        return transition
     else:
         return out
 
@@ -429,21 +461,27 @@ def get_kh(data, mask=False, anisotropy=5.0, transition=False):
 
     """
 
-    thickness = get_thickness(data, mask=mask)
+    thickness = get_thickness(data, mask=mask, transition=transition)
 
     if mask:
-        a = data.where(data, np.nan)
+        _a = data[[var for var in data.variables if var.endswith("_mask")]]
+        a = _a.where(_a, np.nan)
         b = thickness.where(thickness, np.nan)
+
         def n(s):
             return f"{s}_mask"
     elif transition:
-        a = data.where(data, np.nan)
-        b = thickness.where(thickness, np.nan)
+        # note the ~ operator
+        _a = data[[var for var in data.variables if var.endswith("_transition")]]
+        a = _a.where(~_a, np.nan).where(_a, 1.0)
+        b = thickness.where(~thickness, np.nan)
+
         def n(s):
             return f"{s}_transition"
     else:
         a = data
         b = thickness
+
         def n(s):
             return s
 
@@ -475,9 +513,9 @@ def get_kh(data, mask=False, anisotropy=5.0, transition=False):
     s13k = a[n("s13kd")] * (a[n("ms13kd")] == 1) + 1.12 * a[n("s13kd")] * (
         a[n("ms13kd")] == 2
     ) / b.isel(layer=5)
-    s21k = a[n("s21kd")] * (a[n("ms21kd")] == 1) + a[n("s21kd")] * (a[n("ms21kd")] == 2) / b.isel(
-        layer=7
-    )
+    s21k = a[n("s21kd")] * (a[n("ms21kd")] == 1) + a[n("s21kd")] * (
+        a[n("ms21kd")] == 2
+    ) / b.isel(layer=7)
     s22k = 2 * a[n("s22kd")] * (a[n("ms22kd")] == 1) + a[n("s22kd")] * (
         a[n("ms22kd")] == 1
     ) / b.isel(layer=9)
@@ -489,6 +527,14 @@ def get_kh(data, mask=False, anisotropy=5.0, transition=False):
 
     if mask:
         return ~np.isnan(out)
+    elif transition:
+        mask = get_kh(data, mask=True, transition=False)
+        transition = np.isnan(out)
+        check = mask.astype(int) + transition.astype(int)
+        assert (check <= 1).all(), (
+            "Transition cells should not overlap with mask."
+        )
+        return transition
     else:
         return out
 
@@ -518,21 +564,27 @@ def get_kv(data, mask=False, anisotropy=5.0, transition=False):
         # Calculate hydraulic conductivity values with a mask applied
         kv_values_masked = get_kv(data, mask=True)
     """
-    thickness = get_thickness(data, mask=mask)
+    thickness = get_thickness(data, mask=mask, transition=transition)
 
     if mask:
-        a = data.where(data, np.nan)
+        _a = data[[var for var in data.variables if var.endswith("_mask")]]
+        a = _a.where(_a, np.nan)
         b = thickness.where(thickness, np.nan)
+
         def n(s):
             return f"{s}_mask"
     elif transition:
-        a = data.where(data, np.nan)
-        b = thickness.where(thickness, np.nan)
+        # note the ~ operator
+        _a = data[[var for var in data.variables if var.endswith("_transition")]]
+        a = _a.where(~_a, np.nan).where(_a, 1.0)
+        b = thickness.where(~thickness, np.nan)
+
         def n(s):
             return f"{s}_transition"
     else:
         a = data
         b = thickness
+
         def n(s):
             return s
 
@@ -555,8 +607,17 @@ def get_kv(data, mask=False, anisotropy=5.0, transition=False):
         ),
         dim="layer",
     )
+
     if mask:
         return ~np.isnan(out)
+    elif transition:
+        mask = get_kv(data, mask=True, transition=False)
+        transition = np.isnan(out)
+        check = mask.astype(int) + transition.astype(int)
+        assert (check <= 1).all(), (
+            "Transition cells should not overlap with mask."
+        )
+        return transition
     else:
         return out
 
@@ -575,17 +636,23 @@ def get_botm(data, mask=False, transition=False):
     out (xarray.DataArray): Array containing the bottom elevation of each layer.
     """
     if mask:
-        a = data.where(data, np.nan)
+        _a = data[[var for var in data.variables if var.endswith("_mask")]]
+        a = _a.where(_a, np.nan)
+
         def n(s):
             return f"{s}_mask"
 
     elif transition:
-        a = data.where(data, np.nan)
+        # note the ~ operator
+        _a = data[[var for var in data.variables if var.endswith("_transition")]]
+        a = _a.where(~_a, np.nan).where(_a, 1.0)
+
         def n(s):
             return f"{s}_transition"
 
     else:
         a = data
+
         def n(s):
             return s
 
@@ -611,14 +678,24 @@ def get_botm(data, mask=False, transition=False):
     )
     if mask:
         return ~np.isnan(out)
+    elif transition:
+        mask = get_botm(data, mask=True, transition=False)
+        transition = np.isnan(out)
+        check = mask.astype(int) + transition.astype(int)
+        assert (check <= 1).all(), (
+            "Transition cells should not overlap with mask."
+        )
+        return transition
     else:
         return out
 
 
 def get_pwn_layer_model(ds, data_path, length_transition=100.0, cachedir=None):
     pwn = read_pwn_data2(
-        ds, datadir=data_path, length_transition=length_transition,
-    cachedir=cachedir,
+        ds,
+        datadir=data_path,
+        length_transition=length_transition,
+        cachedir=cachedir,
     )
     translate_triwaco_names_to_index = {
         "W11": 0,
@@ -725,223 +802,400 @@ def read_pwn_data2(ds, datadir=None, length_transition=100.0, cachedir=None):
     return ds_out
 
 
-def get_overlap_model_layers(
-    ml_layer_ds1,
-    ml_layer_ds2,
-    name_bot_ds1="botm",
-    name_bot_ds2="botm",
-    name_ds1=None,
-    name_ds2=None,
-    only_borders=False,
-):
-    """Get the overlap for each layer in layer model 1 with each layer in
-    layer model 2.
+@cache.cache_netcdf
+def _read_top_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
+    """read top of aquitards
 
 
     Parameters
     ----------
-    ml_layer_ds1 : xr.Dataset
-        layer model 1.
-    ml_layer_ds2 :  xr.Dataset
-        layer model 2.
-    name_bot_ds1 : str, optional
-        name of the data variable in model_ds1 with the bottom data array.
-        The default is 'botm'.
-    name_bot_ds2 : TYPE, optional
-        name of the data variable in model_ds2 with the bottom data array.
-        The default is 'botm'.
-    name_ds1 : str or None, optional
-        name of the layer model 1. If None the modelname attribute of the
-        model_ds1 is used. The default is 'layer model 1'.
-    name_ds2 : str or None, optional
-        name of the layer model 2.  If None the modelname attribute of the
-        model_ds2 is used. The default is 'layer model 2'.
-    only_borders : bool, optional
-        if True only the borders of the two layer models are compared. If
-        False the comparison is made for all cells. The default is False.
+    ds : xr.DataSet
+        xarray with model data
+    pathname : str
+        directory with model data.
+    length_transition : float, optional
+        length of transition zone, by default 100.
+    ix : GridIntersect, optional
+        If not provided it is computed from ds.
 
     Returns
     -------
-    df_nan : pandas DataFrame
-        The percentage of nan values in one or both of the two compared layers.
-    df_overlap : pandas DataFrame
-        The percentage of overlap between two layers, that is the number of
-        cells in one layer model that have some overlap with the same cell in
-        another layer model divided by the total number of cells. A cell is
-        considered to have some overlap if the cell in one layer model is not
-        completely above or below the cell in another layer model. Inactive
-        cells with nan values are considered to have no overlap.
-    df_overlap_nonan : pandas DataFrame
-        The same as df_overlap only now inactive cells with nan values are
-        excluded from the calculation.
+    ds_out : xr.DataSet
+        xarray dataset with 'TS11', 'TS12', 'TS13', 'TS21', 'TS22', 'TS31',
+        'TS32' variables.
+    ds_out_mask : xr.DataSet
+        xarray dataset with True for all cells for which ds_out has valid data.
+    ds_out_mask_transition : xr.DataSet
+        xarray dataset with True for all cells in the transition zone.
 
     """
-    if name_ds1 is None:
-        name_ds1 = ml_layer_ds1.model_name
+    logging.info("read top of aquitards")
 
-    if name_ds2 is None:
-        name_ds2 = ml_layer_ds2.model_name
+    ds_out = {}
 
-    df_base = pd.DataFrame(index=ml_layer_ds1.layer + 1, columns=ml_layer_ds2.layer)
-    df_base.index.name = name_ds1
-    df_base.columns.name = name_ds2
-    df_nan = df_base.copy()
-    df_above = df_base.copy()
-    df_below = df_base.copy()
-    df_overlap = df_base.copy()
-    df_overlap_nonan = df_base.copy()
+    import dask
+    _gdf_to_da = dask.delayed(nlmod.dims.grid.gdf_to_da)
 
-    if only_borders:
-        border_mask = xr.zeros_like(ml_layer_ds1[name_bot_ds1][0])
-        border_mask[:, -1] = 1
-        border_mask[0, :] = 1
-        border_mask[-1, :] = 1
+    for name in ["TS11", "TS12", "TS13", "TS21", "TS22", "TS31", "TS32"]:
+        fname = os.path.join(
+            pathname, "laagopbouw", "Top_aquitard", "{}.shp".format(name)
+        )
+        gdf = gpd.read_file(fname)
+        gdf.geometry = gdf.buffer(0)
+        delayed = _gdf_to_da(
+            gdf, ds, column="VALUE", agg_method="area_weighted", ix=ix
+        )
+        ds_out[name] = dask.array.from_delayed(delayed, shape=ds.top.shape, dtype=float)
+        ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(
+            gdf, ds, ix=ix, buffer=length_transition
+        )
+        ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
+    return ds_out
 
-    y_overlap = np.array(list(set(ml_layer_ds1.y.values) & set(ml_layer_ds2.y.values)))
-    x_overlap = np.array(list(set(ml_layer_ds1.x.values) & set(ml_layer_ds2.x.values)))
 
-    y_overlap = np.sort(y_overlap)[::-1]
-    x_overlap.sort()
+@cache.cache_netcdf
+def _read_thickness_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
+    """read thickness of aquitards
 
-    for model_lay_1 in range(len(ml_layer_ds1.layer)):
-        for model_lay_2 in range(len(ml_layer_ds2.layer)):
-            compare_lay = compare_layer_models_top_view(
-                ml_layer_ds2,
-                ml_layer_ds1,
-                model_lay_2,
-                model_lay_1,
-                name_bot_ds2,
-                name_bot_ds1,
-                x_overlap,
-                y_overlap,
-            )
-            if only_borders:
-                compare_lay = xr.where(border_mask, compare_lay, np.nan)
-                per_nan = 100 * (compare_lay == 12.0).sum() / border_mask.values.sum()
-                per_above = 100 * (compare_lay == 11.0).sum() / border_mask.values.sum()
-                per_below = 100 * (compare_lay == 8.0).sum() / border_mask.values.sum()
-            else:
-                per_nan = (
-                    100
-                    * (compare_lay == 12.0).sum()
-                    / (compare_lay.shape[0] * compare_lay.shape[1])
-                )
-                per_above = (
-                    100
-                    * (compare_lay == 11.0).sum()
-                    / (compare_lay.shape[0] * compare_lay.shape[1])
-                )
-                per_below = (
-                    100
-                    * (compare_lay == 8.0).sum()
-                    / (compare_lay.shape[0] * compare_lay.shape[1])
-                )
-            per_overlap = 100 - per_nan - per_above - per_below
-            per_overlap_no_nan = (
-                100 * per_overlap / (per_above + per_below + per_overlap)
-            )
+    Parameters
+    ----------
+    ds : xr.DataSet
+        xarray with model data
+    pathname : str
+        directory with model data.
+    length_transition : float, optional
+        length of transition zone, by default 100.
+    ix : GridIntersect, optional
+        If not provided it is computed from ds.
 
-            df_nan.loc[
-                model_lay_1 + 1, ml_layer_ds2.layer.data[model_lay_2]
-            ] = per_nan.data
-            df_above.loc[
-                model_lay_1 + 1, ml_layer_ds2.layer.data[model_lay_2]
-            ] = per_above.data
-            df_below.loc[
-                model_lay_1 + 1, ml_layer_ds2.layer.data[model_lay_2]
-            ] = per_below.data
-            df_overlap.loc[
-                model_lay_1 + 1, ml_layer_ds2.layer.data[model_lay_2]
-            ] = per_overlap.data
-            df_overlap_nonan.loc[
-                model_lay_1 + 1, ml_layer_ds2.layer.data[model_lay_2]
-            ] = per_overlap_no_nan.data
+    Returns
+    -------
+    ds_out : xr.DataSet
+        xarray dataset with 'DS11', 'DS12', 'DS13', 'DS21', 'DS22', 'DS31'
+        variables.
+    ds_out_mask : xr.DataSet
+        xarray dataset with True for all cells for which ds_out has valid data.
+    ds_out_mask_transition : xr.DataSet
+        xarray dataset with True for all cells in the transition zone.
 
-        print(
-            f"compared model {name_ds1} layer {model_lay_1} with all layers in {name_ds2}"
+    """
+    logging.info("read thickness of aquitards")
+
+    ds_out = xr.Dataset()
+
+    # read thickness of aquitards
+    for name in ["DS11", "DS12", "DS13", "DS21", "DS22", "DS31"]:
+        fname = os.path.join(
+            pathname, "laagopbouw", "Dikte_aquitard", "{}.shp".format(name)
         )
 
-    df_overlap = df_overlap.astype(float)
-    df_overlap[df_overlap == 0] = np.nan
-    nan_cols = df_overlap.columns[df_overlap.isna().all(axis=0)]
-    df_overlap.drop(columns=nan_cols, inplace=True)
+        gdf = gpd.read_file(fname)
+        gdf.geometry = gdf.buffer(0)
+        ds_out[name] = nlmod.dims.grid.gdf_to_da(
+            gdf, ds, column="VALUE", agg_method="area_weighted", ix=ix
+        )
+        ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(
+            gdf, ds, ix=ix, buffer=length_transition
+        )
+        ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
 
-    df_overlap_nonan = df_overlap_nonan.astype(float)
-    df_overlap_nonan[df_overlap_nonan == 0] = np.nan
-    nan_cols = df_overlap_nonan.columns[df_overlap_nonan.isna().all(axis=0)]
-    df_overlap_nonan.drop(columns=nan_cols, inplace=True)
-
-    return df_nan, df_overlap, df_overlap_nonan
+    return ds_out
 
 
-def get_pwn_extent(regis_ds, pwn_ds):
-    """get the extent of the part of the pwn model that is inside the
-    regis model.
-
+@cache.cache_netcdf
+def _read_kd_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
+    """read kd of aquitards
 
     Parameters
     ----------
-    regis_ds : xarray dataset
-        dataset of regis model.
-    pwn_ds : xarray dataset
-        dataset of pwn model
+    ds : xr.DataSet
+        xarray with model data
+    pathname : str
+        directory with model data.
+    length_transition : float, optional
+        length of transition zone, by default 100.
 
     Returns
     -------
-    extent_pwn : list, tuple or numpy array
-        extent of the part of the pwn model that is inside the regis model
+    ds_out : xr.DataSet
+        xarray dataset with 's11kd', 's12kd', 's13kd', 's21kd', 's22kd', 's31kd',
+        's32kd' variables.
+    ds_out_mask : xr.DataSet
+        xarray dataset with True for all cells for which ds_out has valid data.
+    ds_out_mask_transition : xr.DataSet
+        xarray dataset with True for all cells in the transition zone.
 
     """
+    logging.info("read kd of aquifers")
 
-    model_layer_combi_type = nlmod.util.compare_model_extents(
-        regis_ds.extent, pwn_ds.extent
+    ds_out = xr.Dataset()
+
+    # read kD-waarden of aquifers
+    for name in ["s11kd", "s12kd", "s13kd", "s21kd", "s22kd", "s31kd", "s32kd"]:
+        fname = os.path.join(
+            pathname, "Bodemparams", "KDwaarden_aquitards", "{}.shp".format(name)
+        )
+        gdf = gpd.read_file(fname)
+        ds_out[name] = nlmod.dims.grid.gdf_to_da(
+            gdf, ds, column="VALUE", agg_method="nearest"
+        )
+        ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(
+            gdf, ds, ix=ix, buffer=length_transition
+        )
+        ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
+
+    return ds_out
+
+
+@cache.cache_netcdf
+def _read_mask_of_aquifers(ds, pathname, length_transition=100.0, ix=None):
+    """read mask of aquifers
+
+    Parameters
+    ----------
+    ds : xr.DataSet
+        xarray with model data
+    pathname : str
+        directory with model data.
+    length_transition : float, optional
+        length of transition zone, by default 100.
+    ix : GridIntersect, optional
+        If not provided it is computed from ds.
+
+    Returns
+    -------
+    ds_out : xr.DataSet
+        xarray dataset with '12', '13', '21', '22' variables.
+    ds_out_mask : xr.DataSet
+        xarray dataset with True for all cells for which ds_out has valid data.
+    ds_out_mask_transition : xr.DataSet
+        xarray dataset with True for all cells in the transition zone.
+    """
+    logging.info("read mask of aquifers")
+
+    ds_out = xr.Dataset()
+
+    # read masks of auifers
+    for name in ["12", "13", "21", "22"]:
+        key = f"ms{name}kd"
+        fname = os.path.join(
+            pathname,
+            "Bodemparams",
+            "Maskers_kdwaarden_aquitards",
+            "masker_aquitard{}_kd.shp".format(name),
+        )
+        gdf = gpd.read_file(fname)
+        gdf.geometry = gdf.buffer(0)
+        ds_out[key] = nlmod.dims.gdf_to_da(
+            gdf, ds, column="VALUE", agg_method="nearest", ix=ix
+        )
+        ds_out[f"{key}_mask"] = ~np.isnan(ds_out[key])
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(
+            gdf, ds, ix=ix, buffer=length_transition
+        )
+        ds_out[f"{key}_transition"] = in_transition & ~ds_out[f"{key}_mask"]
+
+    return ds_out
+
+
+@cache.cache_netcdf
+def _read_layer_kh(ds, pathname, length_transition=100.0, ix=None):
+    """read hydraulic conductivity of layers
+
+    Parameters
+    ----------
+    ds : xr.DataSet
+        xarray with model data
+    pathname : str
+        directory with model data.
+    length_transition : float, optional
+        length of transition zone, by default 100.
+    ix : GridIntersect, optional
+        If not provided it is computed from ds.
+
+    Returns
+    -------
+    ds_out : xr.DataSet
+        xarray dataset with 'KW11', 'KW12', 'KW13', 'KW21', 'KW22', 'KW31',
+        'KW32' variables.
+    ds_out_mask : xr.DataSet
+        xarray dataset with True for all cells for which ds_out has valid data.
+    ds_out_mask_transition : xr.DataSet
+        xarray dataset with True for all cells in the transition zone.
+
+    """
+    logging.info("read hydraulic conductivity of layers")
+
+    ds_out = xr.Dataset()
+
+    # read hydraulic conductivity of layers
+    for name in ["KW11", "KW12", "KW13", "KW21", "KW22", "KW31", "KW32"]:
+        fname = os.path.join(
+            pathname, "Bodemparams", "Kwaarden_aquifers", "{}.shp".format(name)
+        )
+        gdf = gpd.read_file(fname)
+        ds_out[name] = nlmod.dims.gdf_to_da(
+            gdf, ds, column="VALUE", agg_method="area_weighted"
+        )
+        ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(
+            gdf, ds, ix=ix, buffer=length_transition
+        )
+        ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
+
+    return ds_out
+
+
+@cache.cache_netcdf
+def _read_kv_area(ds, pathname, length_transition=100.0, ix=None):
+    """read vertical resistance of layers
+
+    Parameters
+    ----------
+    ds : xr.DataSet
+        xarray with model data
+    pathname : str
+        directory with model data.
+    length_transition : float, optional
+        length of transition zone, by default 100.
+    ix : GridIntersect, optional
+        If not provided it is computed from ds.
+
+    Returns
+    -------
+    ds_out : xr.DataSet
+        xarray dataset with 'C11AREA', 'C12AREA', 'C13AREA', 'C21AREA',
+        'C22AREA', 'C31AREA', 'C32AREA' variables.
+    ds_out_mask : xr.DataSet
+        xarray dataset with True for all cells for which ds_out has valid data.
+    ds_out_mask_transition : xr.DataSet
+        xarray dataset with True for all cells in the transition zone.
+    """
+    logging.info("read vertical resistance of layers")
+
+    ds_out = xr.Dataset()
+
+    # read vertical resistance per area
+    for name in [
+        "C11AREA",
+        "C12AREA",
+        "C13AREA",
+        "C21AREA",
+        "C22AREA",
+        "C31AREA",
+        "C32AREA",
+    ]:
+        fname = os.path.join(
+            pathname, "Bodemparams", "Cwaarden_aquitards", "{}.shp".format(name)
+        )
+        gdf = gpd.read_file(fname)
+        gdf.geometry = gdf.buffer(0)
+
+        # some overlying shapes give different results when aggregated with
+        # nearest. Remove underlying shape to get same results as Triwaco
+        if name == "C13AREA":
+            gdf2 = gdf.copy()
+            for i in [7, 8, 12, 13]:
+                gdf2.geometry = [
+                    geom.difference(gdf.loc[i, "geometry"])
+                    for geom in gdf.geometry.values
+                ]
+                gdf2.loc[i, "geometry"] = gdf.loc[i, "geometry"]
+            gdf = gdf2
+        elif name == "C21AREA":
+            geom_1 = gdf.loc[1].geometry.difference(gdf.loc[4].geometry)
+            gdf.loc[1, "geometry"] = geom_1
+        elif name == "C22AREA":
+            gdf2 = gdf.copy()
+            for i in [6, 8, 9]:
+                gdf2.geometry = [
+                    geom.difference(gdf.loc[i, "geometry"])
+                    for geom in gdf.geometry.values
+                ]
+                gdf2.loc[i, "geometry"] = gdf.loc[i, "geometry"]
+            gdf = gdf2
+
+        ds_out[name] = nlmod.dims.gdf_to_da(
+            gdf, ds, column="VALUE", agg_method="nearest", ix=ix
+        )
+
+        nanmask = np.isnan(ds_out[name])
+        if name == "C11AREA":
+            ds_out[name].values[nanmask] = 1.0
+        else:
+            ds_out[name].values[nanmask] = 10.0
+
+        ds_out[f"{name}_mask"] = xr.ones_like(ds_out[name], dtype=bool)
+        ds_out[f"{name}_transition"] = xr.zeros_like(ds_out[name], dtype=bool)
+
+    return ds_out
+
+
+@cache.cache_netcdf
+def _read_topsysteem(ds, pathname):
+    """read topsysteem
+
+    Not tested yet after delivered by Artesia
+
+    Parameters
+    ----------
+    ds : xr.DataSet
+        xarray with model data
+    pathname : str
+        directory with model data.
+
+    Returns
+    -------
+    ds_out : xr.DataSet
+        xarray dataset with 'mvpolder', 'MVdtm', 'mvDTM', 'gempeil',
+        'TOP', 'codesoort', 'draindiepte' variables.
+
+    """
+    logging.info("read topsysteem")
+
+    ds_out = xr.Dataset()
+
+    # read surface level
+    fname = os.path.join(pathname, "Topsyst", "mvpolder2007.shp")
+    gdf = gpd.read_file(fname)
+    ds_out["mvpolder"] = nlmod.dims.gdf_to_da(
+        gdf, ds, column="VALUE", agg_method="nearest"
     )
 
-    delr = regis_ds.delr
-    delc = regis_ds.delc
+    fname = os.path.join(pathname, "Topsyst", "MVdtm2007.shp")
+    gdf = gpd.read_file(fname)
+    ds_out["MVdtm"] = nlmod.dims.gdf_to_da(
+        gdf, ds, column="VALUE", agg_method="nearest"
+    )
+    ds_out["mvDTM"] = ds_out["MVdtm"]  # both ways are used in expressions
 
-    x = regis_ds.x.values
-    y = regis_ds.y.values
+    fname = os.path.join(pathname, "Topsyst", "gem_polderpeil2007.shp")
+    gdf = gpd.read_file(fname)
+    gdf.geometry = gdf.buffer(0)
+    ds_out["gempeil"] = nlmod.dims.gdf_to_da(
+        gdf, ds, column="VALUE", agg_method="area_weighted"
+    )
 
-    if model_layer_combi_type == 1:
-        new_pwn_extent = regis_ds.extent.copy()
-    else:
-        xmin = x[x >= (pwn_ds.extent[0] + 0.5 * delr)].min() - 0.5 * delr
-        xmax = x[x <= (pwn_ds.extent[1] - 0.5 * delr)].max() + 0.5 * delr
-        ymin = y[y >= (pwn_ds.extent[2] + 0.5 * delc)].min() - 0.5 * delc
-        ymax = y[y <= (pwn_ds.extent[3] - 0.5 * delc)].max() + 0.5 * delc
-        new_pwn_extent = [xmin, xmax, ymin, ymax]
+    # determine the top of the groundwater system
+    top = ds_out["gempeil"].copy()
+    # use nearest interpolation to fill gaps
+    top = nlmod.dims.fillnan_da(top, ds=ds, method="nearest")
+    ds_out["TOP"] = top
 
-    return new_pwn_extent
+    fname = os.path.join(pathname, "Topsyst", "codes_voor_typedrainage.shp")
+    gdf = gpd.read_file(fname)
+    gdf.geometry = gdf.buffer(0)
+    ds_out["codesoort"] = nlmod.dims.gdf_to_da(
+        gdf, ds, column="VALUE", agg_method="nearest"
+    )
 
+    fname = os.path.join(pathname, "Topsyst", "diepte_landbouw_drains.shp")
+    gdf = gpd.read_file(fname)
+    ds_out["draindiepte"] = nlmod.dims.gdf_to_da(
+        gdf, ds, column="VALUE", agg_method="nearest"
+    )
 
-def get_grid_gdf(grid, kind="elements", extent=None):
-    x = grid["X-COORDINATES NODES"]
-    y = grid["Y-COORDINATES NODES"]
-
-    geometry = []
-    if kind == "elements":
-        e1 = grid["ELEMENT NODES 1"] - 1
-        e2 = grid["ELEMENT NODES 2"] - 1
-        e3 = grid["ELEMENT NODES 3"] - 1
-        for i in range(grid["NUMBER ELEMENTS"]):
-            nodes = [e1[i], e2[i], e3[i]]
-            geometry.append(Polygon(zip(x[nodes], y[nodes])))
-        index = range(1, grid["NUMBER ELEMENTS"] + 1)
-    elif kind == "rivers":
-        lrn = grid["LIST RIVER NODES"] - 1
-        nnr = grid["NUMBER NODES/RIVER"]
-        for i in range(grid["NUMBER RIVERS"]):
-            nodes = lrn[nnr[:i].sum() : nnr[: i + 1].sum()]
-            geometry.append(LineString(zip(x[nodes], y[nodes])))
-        index = grid["RIVERNUMBER"]
-    elif kind == "boundary":
-        lbn = grid["LIST BOUNDARY NODES"] - 1
-        geometry = [Polygon(zip(x[lbn], y[lbn]))]
-        index = ["BOUNDARY"]
-    else:
-        raise (ValueError())
-    gdf = gpd.GeoDataFrame(geometry=geometry, crs={}, index=index)
-    if extent is not None:
-        gdf = gdf.loc[gdf.intersects(nlmod.util.polygon_from_extent(extent))]
-    return gdf
+    return ds_out
