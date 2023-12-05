@@ -38,6 +38,8 @@ def combine_two_layer_models(
     Note that the top variable is required in both layer models to be able to split
     and combine the top layer.
 
+    TODO: Check that top is not merged and taken from layer_model 1.
+
     Parameters
     ----------
     df_koppeltabel : pandas DataFrame
@@ -110,8 +112,8 @@ def combine_two_layer_models(
 
     # Only select part of the table that appears in the two layer models
     df_koppeltabel["layer_index"] = (
-        df_koppeltabel.groupby(koppeltabel_header_regis).cumcount() + 1
-    ).astype(str)
+        (df_koppeltabel.groupby(koppeltabel_header_regis).cumcount() + 1).astype(str)
+    )
     df_koppeltabel["Regis_split"] = df_koppeltabel[koppeltabel_header_regis].str.cat(
         df_koppeltabel["layer_index"], sep="_"
     )
@@ -167,15 +169,23 @@ def combine_two_layer_models(
 
             griddata_points = list(
                 zip(
-                    thick_ratio_pwn.coords["x"].sel(icell2d=mask).values,
-                    thick_ratio_pwn.coords["y"].sel(icell2d=mask).values,
+                    thick_ratio_pwn.coords["x"]
+                    .sel(icell2d=mask)
+                    .values,
+                    thick_ratio_pwn.coords["y"]
+                    .sel(icell2d=mask)
+                    .values,
                 )
             )
             gridpoint_values = thick_ratio_pwn.sel(layer=layer, icell2d=mask).values
             qpoints = list(
                 zip(
-                    thick_ratio_pwn.coords["x"].sel(icell2d=~mask).values,
-                    thick_ratio_pwn.coords["y"].sel(icell2d=~mask).values,
+                    thick_ratio_pwn.coords["x"]
+                    .sel(icell2d=~mask)
+                    .values,
+                    thick_ratio_pwn.coords["y"]
+                    .sel(icell2d=~mask)
+                    .values,
                 )
             )
             qvalues = griddata(
@@ -226,15 +236,23 @@ def combine_two_layer_models(
 
             griddata_points = list(
                 zip(
-                    thick_ratio_regis.coords["x"].sel(icell2d=mask).values,
-                    thick_ratio_regis.coords["y"].sel(icell2d=mask).values,
+                    thick_ratio_regis.coords["x"]
+                    .sel(icell2d=mask)
+                    .values,
+                    thick_ratio_regis.coords["y"]
+                    .sel(icell2d=mask)
+                    .values,
                 )
             )
             gridpoint_values = thick_ratio_regis.sel(layer=layer, icell2d=mask).values
             qpoints = list(
                 zip(
-                    thick_ratio_regis.coords["x"].sel(icell2d=~mask).values,
-                    thick_ratio_regis.coords["y"].sel(icell2d=~mask).values,
+                    thick_ratio_regis.coords["x"]
+                    .sel(icell2d=~mask)
+                    .values,
+                    thick_ratio_regis.coords["y"]
+                    .sel(icell2d=~mask)
+                    .values,
                 )
             )
             qvalues = griddata(
@@ -313,15 +331,23 @@ def combine_two_layer_models(
 
                 griddata_points = list(
                     zip(
-                        vari.coords["x"].sel(icell2d=~transi).values,
-                        vari.coords["y"].sel(icell2d=~transi).values,
+                        vari.coords["x"]
+                        .sel(icell2d=~transi)
+                        .values,
+                        vari.coords["y"]
+                        .sel(icell2d=~transi)
+                        .values,
                     )
                 )
                 gridpoint_values = vari.sel(icell2d=~transi).values
                 qpoints = list(
                     zip(
-                        vari.coords["x"].sel(icell2d=transi).values,
-                        vari.coords["y"].sel(icell2d=transi).values,
+                        vari.coords["x"]
+                        .sel(icell2d=transi)
+                        .values,
+                        vari.coords["y"]
+                        .sel(icell2d=transi)
+                        .values,
                     )
                 )
                 qvalues = griddata(
@@ -401,6 +427,7 @@ def get_thickness(data, mask=False, transition=False):
         _a = data[[var for var in data.variables if var.endswith("_mask")]]
         a = _a.where(_a, other=np.nan)
         botm_nodata_isnan = botm.where(botm, other=np.nan)
+
         def n(s):
             return f"{s}_mask"
     elif transition:
@@ -431,9 +458,7 @@ def get_thickness(data, mask=False, transition=False):
         mask = get_thickness(data, mask=True, transition=False)
         transition = np.isnan(out)
         check = mask.astype(int) + transition.astype(int)
-        assert (check <= 1).all(), (
-            "Transition cells should not overlap with mask."
-        )
+        assert (check <= 1).all(), "Transition cells should not overlap with mask."
         return transition
     else:
         return out
@@ -506,7 +531,8 @@ def get_kh(data, mask=False, anisotropy=5.0, transition=False):
     )
 
     s12k = (
-        a[n("s12kd")] * (a[n("ms12kd")] == 1)
+        a[n("s12kd")]
+        * (a[n("ms12kd")] == 1)
         + 0.5 * a[n("s12kd")] * (a[n("ms12kd")] == 2)
         + 3 * a[n("s12kd")] * (a[n("ms12kd")] == 3)
     ) / b.isel(layer=3)
@@ -531,9 +557,7 @@ def get_kh(data, mask=False, anisotropy=5.0, transition=False):
         mask = get_kh(data, mask=True, transition=False)
         transition = np.isnan(out)
         check = mask.astype(int) + transition.astype(int)
-        assert (check <= 1).all(), (
-            "Transition cells should not overlap with mask."
-        )
+        assert (check <= 1).all(), "Transition cells should not overlap with mask."
         return transition
     else:
         return out
@@ -614,9 +638,7 @@ def get_kv(data, mask=False, anisotropy=5.0, transition=False):
         mask = get_kv(data, mask=True, transition=False)
         transition = np.isnan(out)
         check = mask.astype(int) + transition.astype(int)
-        assert (check <= 1).all(), (
-            "Transition cells should not overlap with mask."
-        )
+        assert (check <= 1).all(), "Transition cells should not overlap with mask."
         return transition
     else:
         return out
@@ -682,9 +704,7 @@ def get_botm(data, mask=False, transition=False):
         mask = get_botm(data, mask=True, transition=False)
         transition = np.isnan(out)
         check = mask.astype(int) + transition.astype(int)
-        assert (check <= 1).all(), (
-            "Transition cells should not overlap with mask."
-        )
+        assert (check <= 1).all(), "Transition cells should not overlap with mask."
         return transition
     else:
         return out
@@ -831,10 +851,7 @@ def _read_top_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
     """
     logging.info("read top of aquitards")
 
-    ds_out = {}
-
-    import dask
-    _gdf_to_da = dask.delayed(nlmod.dims.grid.gdf_to_da)
+    ds_out = xr.Dataset()
 
     for name in ["TS11", "TS12", "TS13", "TS21", "TS22", "TS31", "TS32"]:
         fname = os.path.join(
@@ -842,15 +859,15 @@ def _read_top_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
         )
         gdf = gpd.read_file(fname)
         gdf.geometry = gdf.buffer(0)
-        delayed = _gdf_to_da(
+        ds_out[name] = nlmod.dims.grid.gdf_to_da(
             gdf, ds, column="VALUE", agg_method="area_weighted", ix=ix
         )
-        ds_out[name] = dask.array.from_delayed(delayed, shape=ds.top.shape, dtype=float)
         ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
         in_transition = nlmod.dims.grid.gdf_to_bool_da(
             gdf, ds, ix=ix, buffer=length_transition
         )
         ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
+        
     return ds_out
 
 
