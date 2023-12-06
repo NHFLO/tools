@@ -11,7 +11,7 @@ from scipy.interpolate import griddata
 import pykrige
 from shapely import MultiPolygon
 
-from layer_read import read_pwn_data2
+from .layers_read import read_pwn_data2
 
 logger = logging.getLogger(__name__)
 
@@ -389,6 +389,91 @@ def combine_two_layer_models(
     return layer_model_out, cat
 
 
+def get_pwn_layer_model(ds, datadir_mensink=None, datadir_bergen=None, length_transition=100.0, cachedir=None):
+    pwn = read_pwn_data2(
+        ds, 
+        datadir_mensink=datadir_mensink, 
+        datadir_bergen=datadir_bergen,
+        length_transition=length_transition,
+        cachedir=cachedir,
+    )
+    translate_triwaco_names_to_index = {
+        "W11": 0,
+        "S11": 1,
+        "W12": 2,
+        "S12": 3,
+        "W13": 4,
+        "S13": 5,
+        "W21": 6,
+        "S21": 7,
+        "W22": 8,
+        "S22": 9,
+        "W31": 10,
+        "S31": 11,
+        "W32": 12,
+        "S32": 13,
+    }
+
+    layer_model_pwn_attrs = {
+        "extent": ds.attrs["extent"],
+        "gridtype": ds.attrs["gridtype"],
+    }
+    layer_model_pwn = xr.Dataset(
+        {
+            "top": pwn["top"],
+            "botm": get_botm(pwn),
+            "kh": get_kh(pwn),
+            "kv": get_kv(pwn),
+        },
+        coords={"layer": list(translate_triwaco_names_to_index.keys())},
+        attrs=layer_model_pwn_attrs,
+    )
+    transition_model_pwn = xr.Dataset(
+        {
+            "top": pwn["top_transition"],
+            "botm": get_botm(pwn, mask=False, transition=True),
+            "kh": get_kh(pwn, mask=False, transition=True),
+            "kv": get_kv(pwn, mask=False, transition=True),
+        },
+        coords={"layer": list(translate_triwaco_names_to_index.keys())},
+    )
+
+    # Bergen
+    translate_triwaco_bergen_names_to_index = {
+        "W1A": 0,
+        "S1A": 1,
+        "W1B": 2,
+        "S1B": 3,
+        "W1C": 4,
+        "S1C": 5,
+        "W1D": 6,
+        "S1D": 7,
+        "Wq2": 8,
+        "Sq2": 9,
+    }
+    layer_model_bergen = xr.Dataset(
+        {
+            "top": pwn["top"],
+            "botm": get_bergen_botm(pwn),
+            "kh": get_bergen_kh(pwn),
+            "kv": get_bergen_kv(pwn),
+        },
+        coords={"layer": list(translate_triwaco_bergen_names_to_index.keys())},
+        attrs=layer_model_pwn_attrs,
+    )
+    transition_model_bergen = xr.Dataset(
+        {
+            "top": pwn["top_transition"],
+            "botm": get_botm(pwn, mask=False, transition=True),
+            "kh": get_kh(pwn, mask=False, transition=True),
+            "kv": get_kv(pwn, mask=False, transition=True),
+        },
+        coords={"layer": list(translate_triwaco_bergen_names_to_index.keys())},
+    )
+
+    return layer_model_pwn, transition_model_pwn, layer_model_bergen, transition_model_bergen
+
+
 def get_bergen_thickness(data, mask=False, transition=False):
     """
     Calculate the thickness of layers in a given dataset.
@@ -654,9 +739,36 @@ def get_bergen_kh(data, mask=False, anisotropy=5.0, transition=False):
     kh: xarray.DataArray
         The calculated hydraulic conductivity.
 
+    kh = xr.zeros_like(t_da)
+    kh[0] = 7.0
+    kh[1] = thickness[1] / clist[0] / f_anisotropy
+    kh[2] = 7.0
+    kh[3] = thickness[3] / clist[1] / f_anisotropy
+    kh[4] = 12.0
+    kh[5] = thickness[5] / clist[2] / f_anisotropy
+    kh[6] = 15.0
+    kh[7] = thickness[7] / clist[3] / f_anisotropy
+    kh[8] = 20.0
+
     """
 
     thickness = get_bergen_thickness(data, mask=mask, transition=transition)
+    out = get_bergen_thickness(data, mask=True, transition=False)
+    out = np.isnan(thickness)
+    if mask:
+        print("hoi")
+    elif transition:
+        print("hoi")
+    else:
+        out_mask = get_bergen_thickness(data, mask=True, transition=False)
+        out = thickness.where(~out_mask, other=1.)
+        out[dict(layer=[0, 2, 4, 6, 8])] *= [8., 7., 12., 15., 20.]
+        out[dict(layer=1)] = thickness[dict(layer=1)] / data["BER_C1A"] / anisotropy
+        out[dict(layer=3)] = thickness[dict(layer=3)] / data["BER_C1B"] / anisotropy
+        out[dict(layer=5)] = thickness[dict(layer=5)] / data["BER_C1C"] / anisotropy
+        out[dict(layer=7)] = thickness[dict(layer=7)] / data["BER_C1D"] / anisotropy
+        out[dict(layer=9)] = thickness[dict(layer=9)] / data["BER_C2"] / anisotropy
+
 
     if mask:
         _a = data[[var for var in data.variables if var.endswith("_mask")]]
@@ -680,9 +792,11 @@ def get_bergen_kh(data, mask=False, anisotropy=5.0, transition=False):
         def n(s):
             return s
 
+    xr.full_like(a.top, np.nan)
+
     out = xr.concat(
         (
-            a[n("KW11")],  # Aquifer 11
+            xr.full_like(a.top, 8.),  # Aquifer 11
             b.isel(layer=1) / a[n("C11AREA")] * anisotropy,  # Aquitard 11
             a[n("KW12")],  # Aquifer 12
             b.isel(layer=3) / a[n("C12AREA")] * anisotropy,  # Aquitard 12
@@ -699,27 +813,6 @@ def get_bergen_kh(data, mask=False, anisotropy=5.0, transition=False):
         ),
         dim="layer",
     )
-
-    s12k = (
-        a[n("s12kd")]
-        * (a[n("ms12kd")] == 1)
-        + 0.5 * a[n("s12kd")] * (a[n("ms12kd")] == 2)
-        + 3 * a[n("s12kd")] * (a[n("ms12kd")] == 3)
-    ) / b.isel(layer=3)
-    s13k = a[n("s13kd")] * (a[n("ms13kd")] == 1) + 1.12 * a[n("s13kd")] * (
-        a[n("ms13kd")] == 2
-    ) / b.isel(layer=5)
-    s21k = a[n("s21kd")] * (a[n("ms21kd")] == 1) + a[n("s21kd")] * (
-        a[n("ms21kd")] == 2
-    ) / b.isel(layer=7)
-    s22k = 2 * a[n("s22kd")] * (a[n("ms22kd")] == 1) + a[n("s22kd")] * (
-        a[n("ms22kd")] == 1
-    ) / b.isel(layer=9)
-
-    out.loc[{"layer": 3}] = out.loc[{"layer": 3}].where(np.isnan(s12k), other=s12k)
-    out.loc[{"layer": 5}] = out.loc[{"layer": 5}].where(np.isnan(s13k), other=s13k)
-    out.loc[{"layer": 7}] = out.loc[{"layer": 7}].where(np.isnan(s21k), other=s21k)
-    out.loc[{"layer": 9}] = out.loc[{"layer": 9}].where(np.isnan(s22k), other=s22k)
 
     if mask:
         return ~np.isnan(out)
@@ -816,7 +909,7 @@ def get_bergen_kv(data, mask=False, anisotropy=5.0, transition=False):
 
 def get_bergen_botm(data, mask=False, transition=False):
     """
-    Calculate the bottom elevation of each layer in the model.
+    Calculate the bottom elevation of each layer in the Bergen model.
 
     Parameters
     ----------
@@ -832,7 +925,7 @@ def get_bergen_botm(data, mask=False, transition=False):
         a = _a.where(_a, np.nan)
 
         def n(s):
-            return f"{s}_mask"
+            return f"BER_{s}_mask"
 
     elif transition:
         # note the ~ operator
@@ -840,31 +933,26 @@ def get_bergen_botm(data, mask=False, transition=False):
         a = _a.where(~_a, np.nan).where(_a, 1.0)
 
         def n(s):
-            return f"{s}_transition"
+            return f"BER_{s}_transition"
 
     else:
         a = data
 
         def n(s):
-            return s
+            return f"BER_{s}"
 
     out = xr.concat(
         (
-            a[n("TS11")],  # Base aquifer 11
-            a[n("TS11")] - a[n("DS11")],  # Base aquitard 11
-            a[n("TS12")],  # Base aquifer 12
-            a[n("TS12")] - a[n("DS12")],  # Base aquitard 12
-            a[n("TS13")],  # Base aquifer 13
-            a[n("TS13")] - a[n("DS13")],  # Base aquitard 13
-            a[n("TS21")],  # Base aquifer 21
-            a[n("TS21")] - a[n("DS21")],  # Base aquitard 21
-            a[n("TS22")],  # Base aquifer 22
-            a[n("TS22")] - a[n("DS22")],  # Base aquitard 22
-            a[n("TS31")],  # Base aquifer 31
-            a[n("TS31")] - a[n("DS31")],  # Base aquitard 31
-            a[n("TS32")],  # Base aquifer 32
-            a[n("TS32")] - 5.0,  # Base aquitard 33
-            # a[n("TS32")] - 105., # Base aquifer 41
+            a[n("BA1A")] + a[n("DI1A")],  # Base aquifer 11
+            a[n("BA1A")],  # Base aquitard 11
+            a[n("BA1B")] + a[n("DI1B")],  # Base aquifer 12
+            a[n("BA1B")],  # Base aquitard 12
+            a[n("BA1C")] + a[n("DI1C")],  # Base aquifer 13
+            a[n("BA1C")],  # Base aquitard 13
+            a[n("BA1D")] + a[n("DI1D")],  # Base aquifer 14
+            a[n("BA1D")],  # Base aquitard 14
+            a[n("BAq2")] + a[n("DIq2")],  # Base aquifer 21
+            a[n("BAq2")],  # Base aquitard 21
         ),
         dim="layer",
     )
@@ -1201,838 +1289,3 @@ def get_botm(data, mask=False, transition=False):
         return transition
     else:
         return out
-
-
-def get_pwn_layer_model(ds, datadir_mensink=None, datadir_bergen=None, length_transition=100.0, cachedir=None):
-    pwn = read_pwn_data2(
-        ds, 
-        datadir_mensink=datadir_mensink, 
-        datadir_bergen=datadir_bergen,
-        length_transition=length_transition,
-        cachedir=cachedir,
-    )
-    translate_triwaco_names_to_index = {
-        "W11": 0,
-        "S11": 1,
-        "W12": 2,
-        "S12": 3,
-        "W13": 4,
-        "S13": 5,
-        "W21": 6,
-        "S21": 7,
-        "W22": 8,
-        "S22": 9,
-        "W31": 10,
-        "S31": 11,
-        "W32": 12,
-        "S32": 13,
-    }
-
-    layer_model_pwn_attrs = {
-        "extent": ds.attrs["extent"],
-        "gridtype": ds.attrs["gridtype"],
-    }
-    layer_model_pwn = xr.Dataset(
-        {
-            "top": pwn["top"],
-            "botm": get_botm(pwn),
-            "kh": get_kh(pwn),
-            "kv": get_kv(pwn),
-        },
-        coords={"layer": list(translate_triwaco_names_to_index.keys())},
-        attrs=layer_model_pwn_attrs,
-    )
-    transition_model_pwn = xr.Dataset(
-        {
-            "top": pwn["top_transition"],
-            "botm": get_botm(pwn, mask=False, transition=True),
-            "kh": get_kh(pwn, mask=False, transition=True),
-            "kv": get_kv(pwn, mask=False, transition=True),
-        },
-        coords={"layer": list(translate_triwaco_names_to_index.keys())},
-    )
-    return layer_model_pwn, transition_model_pwn
-
-
-def read_pwn_data2(ds, datadir_mensink=None, datadir_bergen=None, length_transition=100.0, cachedir=None):
-    """reads model data from a directory
-
-
-    Parameters
-    ----------
-    ds : xarray Dataset
-        model dataset.
-    datadir : str, optional
-        directory with modeldata. The default is None.
-    cachedir : str, optional
-        cachedir used to cache files using the decorator
-        nlmod.cache.cache_netcdf. The default is None.
-
-    Returns
-    -------
-    ds : xarray Dataset
-        model dataset.
-    ds_mask : xarray Dataset
-        mask dataset. True where values are valid
-    ds_mask_transition : xarray Dataset
-        mask dataset. True in transition zone.
-    """
-
-    modelgrid = nlmod.dims.grid.modelgrid_from_ds(ds)
-    ix = GridIntersect(modelgrid, method="vertex")
-
-    ds_out = xr.Dataset()
-
-    if datadir_bergen is not None:
-        logger.info("Reading PWN data from Bergen")
-        functions = [
-            _read_bergen_basis_aquitards,
-            _read_bergen_thickness_aquitards,
-        ]
-
-        for func in functions:
-            logger.info(f"Gathering PWN layer info with: {func.__name__}")
-
-            out = func(
-                ds,
-                datadir_bergen,
-                length_transition=length_transition,
-                cachedir=cachedir,
-                cachename=f"triw_{func.__name__}",
-                ix=ix,
-            )
-            ds_out.update(out)
-
-    if datadir_mensink is not None:
-        logger.info("Reading PWN data from Mensink")
-        functions = [
-            _read_top_of_aquitards,
-            _read_thickness_of_aquitards,
-            _read_kd_of_aquitards,
-            _read_mask_of_aquifers,
-            _read_layer_kh,
-            _read_kv_area,
-        ]
-
-        for func in functions:
-            logger.info(f"Gathering PWN layer info with: {func.__name__}")
-
-            out = func(
-                ds,
-                datadir_mensink,
-                length_transition=length_transition,
-                cachedir=cachedir,
-                cachename=f"triw_{func.__name__}",
-                ix=ix,
-            )
-            ds_out.update(out)
-
-    # Add top from ds
-    ds_out["top"] = ds["top"]
-    ds_out["top_mask"] = xr.ones_like(ds["top"], dtype=bool)
-    ds_out["top_transition"] = xr.zeros_like(ds["top"], dtype=bool)
-
-    return ds_out
-
-
-@cache.cache_netcdf
-def _read_bergen_basis_aquitards(ds, pathname=None, length_transition=100.0, ix=None, use_default_values_outside_polygons=False):
-    """read basis of aquitards
-
-
-    Parameters
-    ----------
-    ds : xr.DataSet
-        xarray with model data
-    pathname : str
-        directory with model data.
-    length_transition : float, optional
-        length of transition zone, by default 100. Incompatible with use_default_values_outside_polygons.
-    ix : GridIntersect, optional
-        If not provided it is computed from ds.
-    use_default_values_outside_polygons : bool, optional
-        If True, the default values are used for cells outside the polygons.
-        If False, nan is used for cells outside the polygons. Default is False.
-        Transition zone to REGISII is better. Implemented to mimic triwaco Bergen model.
-
-
-    Returns
-    -------
-    ds_out : xr.DataSet
-        xarray dataset with 'TS11', 'TS12', 'TS13', 'TS21', 'TS22', 'TS31',
-        'TS32' variables.
-    ds_out_mask : xr.DataSet
-        xarray dataset with True for all cells for which ds_out has valid data.
-    ds_out_mask_transition : xr.DataSet
-        xarray dataset with True for all cells in the transition zone.
-
-    """
-    default_values = {
-        "1A": -3.0,
-        "1B": -5.0,
-        "1C": -15.0,
-        "1D": -20.0,
-        "q2": -35.0
-    }
-    polynames = {
-        "1A": "BA1A",
-        "1B": "BA1B_pol",
-        "1C": "BA1C_pol",
-        "1D": "BA1D_pol",
-        "q2": "BAq2_pol",
-    }
-    pointnames = {
-        "1A": None,
-        "1B": "BA1B_point",
-        "1C": "BA1C_point",
-        "1D": "BA1D_point",
-        "q2": "BAq2_point",
-    }
-
-    logging.info("read basis of Bergen aquitards")
-    assert not (use_default_values_outside_polygons and length_transition is not None), "length_transition and use_default_values_outside_polygons are incompatible."
-
-    ds_out = xr.Dataset()
-    fd = os.path.join(
-            pathname, "Laagopbouw", "Basis_aquitard")
-
-    # Load shapes for which no Kriging is applied
-    for name, polyname in polynames.items():
-        gdf = gpd.read_file(os.path.join(fd, f"{polyname}.shp"))
-        gdf_fill = gdf[gdf.VALUE != -999.0]  # -999 is Krieged
-        gdf_krieg = gdf[gdf.VALUE == -999.0]
-        array = nlmod.dims.grid.gdf_to_da(
-            gdf_fill, ds, column="VALUE", agg_method="area_weighted", ix=ix
-        )
-
-        # Krieging
-        if pointnames[name] is not None:
-            gdf_pts = gpd.read_file(os.path.join(fd, f"{pointnames[name]}.shp"))
-            ok = pykrige.ok.OrdinaryKriging(
-                gdf_pts.geometry.x.values,
-                gdf_pts.geometry.y.values,
-                gdf_pts.VALUE.values,
-                variogram_model="linear",
-                verbose=False,
-                enable_plotting=False,
-            )
-            multipolygon = MultiPolygon(gdf_krieg.geometry.values)
-            r = ix.intersect(multipolygon, contains_centroid=False, min_area_fraction=None, shapetype="multipolygon").astype([('icell2d', int), ('ixshapes', 'O'), ('areas', float)])
-            xpts = ds.x.sel(icell2d=r.icell2d).values
-            ypts = ds.y.sel(icell2d=r.icell2d).values
-            z, _ = ok.execute("points", xpts, ypts)
-            array.loc[dict(icell2d=r.icell2d)] = z
-
-        # compute mask and transition zone
-        ds_out[f"BER_BA{name}_mask"] = ~np.isnan(array)
-        
-        if use_default_values_outside_polygons:
-            array = array.where(ds_out[f"{name}_mask"], default_values[name])
-            ds_out[f"BER_BA{name}_transition"] = xr.zeros_like(array, dtype=bool)
-        else:
-            in_transition = nlmod.dims.grid.gdf_to_bool_da(
-                gdf, ds, ix=ix, buffer=length_transition
-            )
-            ds_out[f"BER_BA{name}_transition"] = in_transition & ~ds_out[f"BER_BA{name}_mask"]
-
-        ds_out[f"BER_BA{name}"] = array
-    return ds_out
-
-
-@cache.cache_netcdf
-def _read_bergen_thickness_aquitards(ds, pathname=None, length_transition=100.0, ix=None, use_default_values_outside_polygons=False):
-    """read thickness of aquitards
-
-    Parameters
-    ----------
-    ds : xr.DataSet
-        xarray with model data
-    pathname : str
-        directory with model data.
-    length_transition : float, optional
-        length of transition zone, by default 100. Incompatible with use_default_values_outside_polygons.
-    ix : GridIntersect, optional
-        If not provided it is computed from ds.
-    use_default_values_outside_polygons : bool, optional
-        If True, the default values are used for cells outside the polygons.
-        If False, nan is used for cells outside the polygons. Default is False.
-        Transition zone to REGISII is better. Implemented to mimic triwaco Bergen model.
-
-
-    Returns
-    -------
-    ds_out : xr.DataSet
-        xarray dataset with 'TS11', 'TS12', 'TS13', 'TS21', 'TS22', 'TS31',
-        'TS32' variables.
-    ds_out_mask : xr.DataSet
-        xarray dataset with True for all cells for which ds_out has valid data.
-    ds_out_mask_transition : xr.DataSet
-        xarray dataset with True for all cells in the transition zone.
-
-    """
-    default_values = {
-        "1A": 0.0,
-        "1B": 0.0,
-        "1C": 0.0,
-        "1D": 0.0,
-        "q2": 0.0
-    }
-    polynames = {
-        "1A": "DI1A",
-        "1B": "DI1B_pol",
-        "1C": "DI1C_pol",
-        "1D": "DI1D",
-        "q2": "DI2",
-    }
-    pointnames = {
-        "1A": None,
-        "1B": "DI1B_point",
-        "1C": "DI1C_point",
-        "1D": None,
-        "q2": None,
-    }
-
-    logging.info("read thickness of Bergen aquitards")
-    assert not (use_default_values_outside_polygons and length_transition is not None), "length_transition and use_default_values_outside_polygons are incompatible."
-
-    ds_out = xr.Dataset()
-    fd = os.path.join(pathname, "Laagopbouw", "Dikte_aquitard")
-
-    # Load shapes for which no Kriging is applied
-    for name, polyname in polynames.items():
-        gdf = gpd.read_file(os.path.join(fd, f"{polyname}.shp"))
-        gdf_fill = gdf[gdf.VALUE != -999.0]  # -999 is Krieged
-        gdf_krieg = gdf[gdf.VALUE == -999.0]
-        array = nlmod.dims.grid.gdf_to_da(
-            gdf_fill, ds, column="VALUE", agg_method="area_weighted", ix=ix
-        )
-
-        # Krieging
-        if pointnames[name] is not None:
-            gdf_pts = gpd.read_file(os.path.join(fd, f"{pointnames[name]}.shp"))
-            ok = pykrige.ok.OrdinaryKriging(
-                gdf_pts.geometry.x.values,
-                gdf_pts.geometry.y.values,
-                gdf_pts.VALUE.values,
-                variogram_model="linear",
-                verbose=False,
-                enable_plotting=False,
-            )
-            multipolygon = MultiPolygon(gdf_krieg.geometry.values)
-            r = ix.intersect(multipolygon, contains_centroid=False, min_area_fraction=None).astype([('icell2d', int), ('ixshapes', 'O'), ('areas', float)])
-            xpts = ds.x.sel(icell2d=r.icell2d).values
-            ypts = ds.y.sel(icell2d=r.icell2d).values
-            z, _ = ok.execute("points", xpts, ypts)
-            array.loc[dict(icell2d=r.icell2d)] = z
-
-        # compute mask and transition zone
-        ds_out[f"BER_DI{name}_mask"] = ~np.isnan(array)
-        
-        if use_default_values_outside_polygons:
-            array = array.where(ds_out[f"{name}_mask"], default_values[name])
-            ds_out[f"BER_DI{name}_transition"] = xr.zeros_like(array, dtype=bool)
-        else:
-            in_transition = nlmod.dims.grid.gdf_to_bool_da(
-                gdf, ds, ix=ix, buffer=length_transition
-            )
-            ds_out[f"BER_DI{name}_transition"] = in_transition & ~ds_out[f"BER_DI{name}_mask"]
-
-        ds_out[f"BER_DI{name}"] = array
-    return ds_out
-
-@cache.cache_netcdf
-def _read_bergen(ds, datadir_bergen=None, length_transition=100.0, ix=None):
-    """reads PWN Bergen shapefiles and converts to a layer model Dataset
-
-
-    Parameters
-    ----------
-    modelgrid : flopy.discretization.vertexgrid.VertexGrid
-        modelgrid
-    datadir_bergen : str
-        directory with shapefiles.
-    plot : bool, optional
-        if True some plots are created during execution. Used for debugging.
-        The default is False.
-
-    Returns
-    -------
-    new_layer_ds : xarray Dataset
-        layer model from shapefiles
-
-    """
-    shp_names = ["1A", "1B", "1C", "1D", "q2"]
-    default_values = [-3.0, -5.0, -15.0, -20.0, -35.0]
-    shp_folders = ["Basis_aquitard", "Dikte_aquitard"]
-
-    data = {}
-
-    for shpfolder in shp_folders:
-        arrays = []
-
-        for j, shpnam in enumerate(shp_names):
-            if shpfolder == "Dikte_aquitard" and shpnam == "q2":
-                shpnam = "2"
-            shpnam = shpfolder[0:2].upper() + shpnam
-            try:
-                poly = gpd.read_file(
-                    os.path.join(datadir_bergen, "Laagopbouw", shpfolder, f"{shpnam}_pol.shp")
-                )
-            except Exception:
-                poly = gpd.read_file(
-                    os.path.join(datadir_bergen, "Laagopbouw", shpfolder, f"{shpnam}.shp"))
-            try:
-                pts = gpd.read_file(
-                    os.path.join(datadir_bergen, "Laagopbouw", shpfolder, f"{shpnam}_point.shp")
-                )
-            except Exception:
-                pts = None
-
-            # build array
-            if shpfolder == "Basis_aquitard":
-                default = default_values[j]
-            elif shpfolder == "Dikte_aquitard":
-                default = 0.0
-
-            poly = poly[poly.VALUE == -999.0]
-            array = nlmod.dims.grid.gdf_to_da(
-                poly, ds, column="VALUE", agg_method="area_weighted", ix=ix
-            )
-            
-                
-            arr = np.full(ds.top.shape, default)
-
-            for i, row in poly.iterrows():
-                geom = row.geometry.buffer(0.0)
-                r = ix.intersect(geom, contains_centroid=False, min_area_fraction=0.5).astype([('cellids', int), ('ixshapes', 'O'), ('areas', float)])
-
-                if r.size == 0:
-                    continue
-
-                # set zones with value from polygon
-                if row["VALUE"] != -999.0:
-                    arr[r.cellids] = row["VALUE"]
-
-                # set interpolated zones
-                elif pts is not None:
-                    # calculate kriging for with points
-                    mask_pts = pts.within(geom)
-                    ok = pykrige.ok.OrdinaryKriging(
-                        pts.geometry.x.values[mask_pts],
-                        pts.geometry.y.values[mask_pts],
-                        pts.loc[mask_pts, "VALUE"].values,
-                        variogram_model="linear",
-                        verbose=False,
-                        enable_plotting=False,
-                    )
-                    xpts = ds.x.values[r.cellids]
-                    ypts = ds.y.values[r.cellids]
-
-                    z, ss = ok.execute("points", xpts, ypts)
-
-                    arr[r.cellids] = z
-                else:
-                    print(f"Did not parse {shpfolder}/{shpnam} {i}!")
-
-            arrays.append(arr)
-
-        dims = (*ds.top.dims, "bergen_layer")
-        data[f"bergen_{shpfolder}"] = xr.DataArray(np.stack(arrays, axis=-1), dims=dims)
-
-    return xr.Dataset(data)
-
-
-@cache.cache_netcdf
-def _read_top_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
-    """read top of aquitards
-
-
-    Parameters
-    ----------
-    ds : xr.DataSet
-        xarray with model data
-    pathname : str
-        directory with model data.
-    length_transition : float, optional
-        length of transition zone, by default 100.
-    ix : GridIntersect, optional
-        If not provided it is computed from ds.
-
-    Returns
-    -------
-    ds_out : xr.DataSet
-        xarray dataset with 'TS11', 'TS12', 'TS13', 'TS21', 'TS22', 'TS31',
-        'TS32' variables.
-    ds_out_mask : xr.DataSet
-        xarray dataset with True for all cells for which ds_out has valid data.
-    ds_out_mask_transition : xr.DataSet
-        xarray dataset with True for all cells in the transition zone.
-
-    """
-    logging.info("read top of aquitards")
-
-    ds_out = xr.Dataset()
-
-    for name in ["TS11", "TS12", "TS13", "TS21", "TS22", "TS31", "TS32"]:
-        fname = os.path.join(
-            pathname, "laagopbouw", "Top_aquitard", "{}.shp".format(name)
-        )
-        gdf = gpd.read_file(fname)
-        gdf.geometry = gdf.buffer(0)
-        ds_out[name] = nlmod.dims.grid.gdf_to_da(
-            gdf, ds, column="VALUE", agg_method="area_weighted", ix=ix
-        )
-        ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
-        in_transition = nlmod.dims.grid.gdf_to_bool_da(
-            gdf, ds, ix=ix, buffer=length_transition
-        )
-        ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
-
-    return ds_out
-
-
-@cache.cache_netcdf
-def _read_thickness_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
-    """read thickness of aquitards
-
-    Parameters
-    ----------
-    ds : xr.DataSet
-        xarray with model data
-    pathname : str
-        directory with model data.
-    length_transition : float, optional
-        length of transition zone, by default 100.
-    ix : GridIntersect, optional
-        If not provided it is computed from ds.
-
-    Returns
-    -------
-    ds_out : xr.DataSet
-        xarray dataset with 'DS11', 'DS12', 'DS13', 'DS21', 'DS22', 'DS31'
-        variables.
-    ds_out_mask : xr.DataSet
-        xarray dataset with True for all cells for which ds_out has valid data.
-    ds_out_mask_transition : xr.DataSet
-        xarray dataset with True for all cells in the transition zone.
-
-    """
-    logging.info("read thickness of aquitards")
-
-    ds_out = xr.Dataset()
-
-    # read thickness of aquitards
-    for name in ["DS11", "DS12", "DS13", "DS21", "DS22", "DS31"]:
-        fname = os.path.join(
-            pathname, "laagopbouw", "Dikte_aquitard", "{}.shp".format(name)
-        )
-
-        gdf = gpd.read_file(fname)
-        gdf.geometry = gdf.buffer(0)
-        ds_out[name] = nlmod.dims.grid.gdf_to_da(
-            gdf, ds, column="VALUE", agg_method="area_weighted", ix=ix
-        )
-        ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
-        in_transition = nlmod.dims.grid.gdf_to_bool_da(
-            gdf, ds, ix=ix, buffer=length_transition
-        )
-        ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
-
-    return ds_out
-
-
-@cache.cache_netcdf
-def _read_kd_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
-    """read kd of aquitards
-
-    Parameters
-    ----------
-    ds : xr.DataSet
-        xarray with model data
-    pathname : str
-        directory with model data.
-    length_transition : float, optional
-        length of transition zone, by default 100.
-
-    Returns
-    -------
-    ds_out : xr.DataSet
-        xarray dataset with 's11kd', 's12kd', 's13kd', 's21kd', 's22kd', 's31kd',
-        's32kd' variables.
-    ds_out_mask : xr.DataSet
-        xarray dataset with True for all cells for which ds_out has valid data.
-    ds_out_mask_transition : xr.DataSet
-        xarray dataset with True for all cells in the transition zone.
-
-    """
-    logging.info("read kd of aquifers")
-
-    ds_out = xr.Dataset()
-
-    # read kD-waarden of aquifers
-    for name in ["s11kd", "s12kd", "s13kd", "s21kd", "s22kd", "s31kd", "s32kd"]:
-        fname = os.path.join(
-            pathname, "Bodemparams", "KDwaarden_aquitards", "{}.shp".format(name)
-        )
-        gdf = gpd.read_file(fname)
-        ds_out[name] = nlmod.dims.grid.gdf_to_da(
-            gdf, ds, column="VALUE", agg_method="nearest"
-        )
-        ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
-        in_transition = nlmod.dims.grid.gdf_to_bool_da(
-            gdf, ds, ix=ix, buffer=length_transition
-        )
-        ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
-
-    return ds_out
-
-
-@cache.cache_netcdf
-def _read_mask_of_aquifers(ds, pathname, length_transition=100.0, ix=None):
-    """read mask of aquifers
-
-    Parameters
-    ----------
-    ds : xr.DataSet
-        xarray with model data
-    pathname : str
-        directory with model data.
-    length_transition : float, optional
-        length of transition zone, by default 100.
-    ix : GridIntersect, optional
-        If not provided it is computed from ds.
-
-    Returns
-    -------
-    ds_out : xr.DataSet
-        xarray dataset with '12', '13', '21', '22' variables.
-    ds_out_mask : xr.DataSet
-        xarray dataset with True for all cells for which ds_out has valid data.
-    ds_out_mask_transition : xr.DataSet
-        xarray dataset with True for all cells in the transition zone.
-    """
-    logging.info("read mask of aquifers")
-
-    ds_out = xr.Dataset()
-
-    # read masks of auifers
-    for name in ["12", "13", "21", "22"]:
-        key = f"ms{name}kd"
-        fname = os.path.join(
-            pathname,
-            "Bodemparams",
-            "Maskers_kdwaarden_aquitards",
-            "masker_aquitard{}_kd.shp".format(name),
-        )
-        gdf = gpd.read_file(fname)
-        gdf.geometry = gdf.buffer(0)
-        ds_out[key] = nlmod.dims.gdf_to_da(
-            gdf, ds, column="VALUE", agg_method="nearest", ix=ix
-        )
-        ds_out[f"{key}_mask"] = ~np.isnan(ds_out[key])
-        in_transition = nlmod.dims.grid.gdf_to_bool_da(
-            gdf, ds, ix=ix, buffer=length_transition
-        )
-        ds_out[f"{key}_transition"] = in_transition & ~ds_out[f"{key}_mask"]
-
-    return ds_out
-
-
-@cache.cache_netcdf
-def _read_layer_kh(ds, pathname, length_transition=100.0, ix=None):
-    """read hydraulic conductivity of layers
-
-    Parameters
-    ----------
-    ds : xr.DataSet
-        xarray with model data
-    pathname : str
-        directory with model data.
-    length_transition : float, optional
-        length of transition zone, by default 100.
-    ix : GridIntersect, optional
-        If not provided it is computed from ds.
-
-    Returns
-    -------
-    ds_out : xr.DataSet
-        xarray dataset with 'KW11', 'KW12', 'KW13', 'KW21', 'KW22', 'KW31',
-        'KW32' variables.
-    ds_out_mask : xr.DataSet
-        xarray dataset with True for all cells for which ds_out has valid data.
-    ds_out_mask_transition : xr.DataSet
-        xarray dataset with True for all cells in the transition zone.
-
-    """
-    logging.info("read hydraulic conductivity of layers")
-
-    ds_out = xr.Dataset()
-
-    # read hydraulic conductivity of layers
-    for name in ["KW11", "KW12", "KW13", "KW21", "KW22", "KW31", "KW32"]:
-        fname = os.path.join(
-            pathname, "Bodemparams", "Kwaarden_aquifers", "{}.shp".format(name)
-        )
-        gdf = gpd.read_file(fname)
-        ds_out[name] = nlmod.dims.gdf_to_da(
-            gdf, ds, column="VALUE", agg_method="area_weighted"
-        )
-        ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
-        in_transition = nlmod.dims.grid.gdf_to_bool_da(
-            gdf, ds, ix=ix, buffer=length_transition
-        )
-        ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
-
-    return ds_out
-
-
-@cache.cache_netcdf
-def _read_kv_area(ds, pathname, length_transition=100.0, ix=None):
-    """read vertical resistance of layers
-
-    Parameters
-    ----------
-    ds : xr.DataSet
-        xarray with model data
-    pathname : str
-        directory with model data.
-    length_transition : float, optional
-        length of transition zone, by default 100.
-    ix : GridIntersect, optional
-        If not provided it is computed from ds.
-
-    Returns
-    -------
-    ds_out : xr.DataSet
-        xarray dataset with 'C11AREA', 'C12AREA', 'C13AREA', 'C21AREA',
-        'C22AREA', 'C31AREA', 'C32AREA' variables.
-    ds_out_mask : xr.DataSet
-        xarray dataset with True for all cells for which ds_out has valid data.
-    ds_out_mask_transition : xr.DataSet
-        xarray dataset with True for all cells in the transition zone.
-    """
-    logging.info("read vertical resistance of layers")
-
-    ds_out = xr.Dataset()
-
-    # read vertical resistance per area
-    for name in [
-        "C11AREA",
-        "C12AREA",
-        "C13AREA",
-        "C21AREA",
-        "C22AREA",
-        "C31AREA",
-        "C32AREA",
-    ]:
-        fname = os.path.join(
-            pathname, "Bodemparams", "Cwaarden_aquitards", "{}.shp".format(name)
-        )
-        gdf = gpd.read_file(fname)
-        gdf.geometry = gdf.buffer(0)
-
-        # some overlying shapes give different results when aggregated with
-        # nearest. Remove underlying shape to get same results as Triwaco
-        if name == "C13AREA":
-            gdf2 = gdf.copy()
-            for i in [7, 8, 12, 13]:
-                gdf2.geometry = [
-                    geom.difference(gdf.loc[i, "geometry"])
-                    for geom in gdf.geometry.values
-                ]
-                gdf2.loc[i, "geometry"] = gdf.loc[i, "geometry"]
-            gdf = gdf2
-        elif name == "C21AREA":
-            geom_1 = gdf.loc[1].geometry.difference(gdf.loc[4].geometry)
-            gdf.loc[1, "geometry"] = geom_1
-        elif name == "C22AREA":
-            gdf2 = gdf.copy()
-            for i in [6, 8, 9]:
-                gdf2.geometry = [
-                    geom.difference(gdf.loc[i, "geometry"])
-                    for geom in gdf.geometry.values
-                ]
-                gdf2.loc[i, "geometry"] = gdf.loc[i, "geometry"]
-            gdf = gdf2
-
-        ds_out[name] = nlmod.dims.gdf_to_da(
-            gdf, ds, column="VALUE", agg_method="nearest", ix=ix
-        )
-
-        nanmask = np.isnan(ds_out[name])
-        if name == "C11AREA":
-            ds_out[name].values[nanmask] = 1.0
-        else:
-            ds_out[name].values[nanmask] = 10.0
-
-        ds_out[f"{name}_mask"] = xr.ones_like(ds_out[name], dtype=bool)
-        ds_out[f"{name}_transition"] = xr.zeros_like(ds_out[name], dtype=bool)
-
-    return ds_out
-
-
-@cache.cache_netcdf
-def _read_topsysteem(ds, pathname):
-    """read topsysteem
-
-    Not tested yet after delivered by Artesia
-
-    Parameters
-    ----------
-    ds : xr.DataSet
-        xarray with model data
-    pathname : str
-        directory with model data.
-
-    Returns
-    -------
-    ds_out : xr.DataSet
-        xarray dataset with 'mvpolder', 'MVdtm', 'mvDTM', 'gempeil',
-        'TOP', 'codesoort', 'draindiepte' variables.
-
-    """
-    logging.info("read topsysteem")
-
-    ds_out = xr.Dataset()
-
-    # read surface level
-    fname = os.path.join(pathname, "Topsyst", "mvpolder2007.shp")
-    gdf = gpd.read_file(fname)
-    ds_out["mvpolder"] = nlmod.dims.gdf_to_da(
-        gdf, ds, column="VALUE", agg_method="nearest"
-    )
-
-    fname = os.path.join(pathname, "Topsyst", "MVdtm2007.shp")
-    gdf = gpd.read_file(fname)
-    ds_out["MVdtm"] = nlmod.dims.gdf_to_da(
-        gdf, ds, column="VALUE", agg_method="nearest"
-    )
-    ds_out["mvDTM"] = ds_out["MVdtm"]  # both ways are used in expressions
-
-    fname = os.path.join(pathname, "Topsyst", "gem_polderpeil2007.shp")
-    gdf = gpd.read_file(fname)
-    gdf.geometry = gdf.buffer(0)
-    ds_out["gempeil"] = nlmod.dims.gdf_to_da(
-        gdf, ds, column="VALUE", agg_method="area_weighted"
-    )
-
-    # determine the top of the groundwater system
-    top = ds_out["gempeil"].copy()
-    # use nearest interpolation to fill gaps
-    top = nlmod.dims.fillnan_da(top, ds=ds, method="nearest")
-    ds_out["TOP"] = top
-
-    fname = os.path.join(pathname, "Topsyst", "codes_voor_typedrainage.shp")
-    gdf = gpd.read_file(fname)
-    gdf.geometry = gdf.buffer(0)
-    ds_out["codesoort"] = nlmod.dims.gdf_to_da(
-        gdf, ds, column="VALUE", agg_method="nearest"
-    )
-
-    fname = os.path.join(pathname, "Topsyst", "diepte_landbouw_drains.shp")
-    gdf = gpd.read_file(fname)
-    ds_out["draindiepte"] = nlmod.dims.gdf_to_da(
-        gdf, ds, column="VALUE", agg_method="nearest"
-    )
-
-    return ds_out

@@ -45,6 +45,7 @@ def read_pwn_data2(ds, datadir_mensink=None, datadir_bergen=None, length_transit
     if datadir_bergen is not None:
         logger.info("Reading PWN data from Bergen")
         functions = [
+            _read_bergen_c_aquitards,
             _read_bergen_basis_aquitards,
             _read_bergen_thickness_aquitards,
         ]
@@ -197,6 +198,52 @@ def _read_bergen_basis_aquitards(ds, pathname=None, length_transition=100.0, ix=
         ds_out[f"BER_BA{name}"] = array
     return ds_out
 
+
+@cache.cache_netcdf
+def _read_bergen_c_aquitards(ds, pathname, length_transition=100.0, ix=None):
+    """read vertical resistance of layers
+
+    Parameters
+    ----------
+    ds : xr.DataSet
+        xarray with model data
+    pathname : str
+        directory with model data.
+    length_transition : float, optional
+        length of transition zone, by default 100.
+    ix : GridIntersect, optional
+        If not provided it is computed from ds.
+
+    Returns
+    -------
+    ds_out : xr.DataSet
+        xarray dataset with 'C11AREA', 'C12AREA', 'C13AREA', 'C21AREA',
+        'C22AREA', 'C31AREA', 'C32AREA' variables.
+    ds_out_mask : xr.DataSet
+        xarray dataset with True for all cells for which ds_out has valid data.
+    ds_out_mask_transition : xr.DataSet
+        xarray dataset with True for all cells in the transition zone.
+    """
+    logging.info("read vertical resistance of aquitards")
+
+    ds_out = xr.Dataset()
+
+    # read kD-waarden of aquifers
+    for j, name in enumerate(["1A", "1B", "1C", "1D", "2"]):
+        fname = os.path.join(
+            pathname, "Bodemparams", "C{}.shp".format(name)
+        )
+        gdf = gpd.read_file(fname)
+        ds_out[f"BER_C{name}"] = nlmod.dims.grid.gdf_to_da(
+            gdf, ds, column="VALUE", agg_method="nearest"
+        )
+        ds_out[f"BER_C{name}_mask"] = ~np.isnan(ds_out[f"BER_C{name}"])
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(
+            gdf, ds, ix=ix, buffer=length_transition
+        )
+        ds_out[f"BER_C{name}_transition"] = in_transition & ~ds_out[f"BER_C{name}_mask"]
+
+    return ds_out
 
 @cache.cache_netcdf
 def _read_bergen_thickness_aquitards(ds, pathname=None, length_transition=100.0, ix=None, use_default_values_outside_polygons=False):
