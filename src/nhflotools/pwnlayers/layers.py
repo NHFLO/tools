@@ -8,6 +8,7 @@ import xarray as xr
 from flopy.utils.gridintersect import GridIntersect
 from nlmod import cache
 from scipy.interpolate import griddata
+import pykrige
 
 logger = logging.getLogger(__name__)
 
@@ -710,10 +711,11 @@ def get_botm(data, mask=False, transition=False):
         return out
 
 
-def get_pwn_layer_model(ds, data_path, length_transition=100.0, cachedir=None):
+def get_pwn_layer_model(ds, datadir_mensink=None, datadir_bergen=None, length_transition=100.0, cachedir=None):
     pwn = read_pwn_data2(
-        ds,
-        datadir=data_path,
+        ds, 
+        datadir_mensink=datadir_mensink, 
+        datadir_bergen=datadir_bergen,
         length_transition=length_transition,
         cachedir=cachedir,
     )
@@ -760,7 +762,7 @@ def get_pwn_layer_model(ds, data_path, length_transition=100.0, cachedir=None):
     return layer_model_pwn, transition_model_pwn
 
 
-def read_pwn_data2(ds, datadir=None, length_transition=100.0, cachedir=None):
+def read_pwn_data2(ds, datadir_mensink=None, datadir_bergen=None, length_transition=100.0, cachedir=None):
     """reads model data from a directory
 
 
@@ -787,32 +789,50 @@ def read_pwn_data2(ds, datadir=None, length_transition=100.0, cachedir=None):
     modelgrid = nlmod.dims.grid.modelgrid_from_ds(ds)
     ix = GridIntersect(modelgrid, method="vertex")
 
-    intersect_kwargs = dict()
-
     ds_out = xr.Dataset()
 
-    functions = [
-        _read_top_of_aquitards,
-        _read_thickness_of_aquitards,
-        _read_kd_of_aquitards,
-        _read_mask_of_aquifers,
-        _read_layer_kh,
-        _read_kv_area,
-    ]
+    if datadir_bergen is not None:
+        logger.info("Reading PWN data from Bergen")
+        functions = [
+            _read_bergen,
+        ]
 
-    for func in functions:
-        logger.info(f"Gathering PWN layer info with: {func.__name__}")
+        for func in functions:
+            logger.info(f"Gathering PWN layer info with: {func.__name__}")
 
-        out = func(
-            ds,
-            datadir,
-            length_transition=length_transition,
-            cachedir=cachedir,
-            cachename=f"triw_{func.__name__}",
-            ix=ix,
-            **intersect_kwargs,
-        )
-        ds_out.update(out)
+            out = func(
+                ds,
+                datadir_bergen,
+                length_transition=length_transition,
+                cachedir=cachedir,
+                cachename=f"triw_{func.__name__}",
+                ix=ix,
+            )
+            ds_out.update(out)
+
+    if datadir_mensink is not None:
+        logger.info("Reading PWN data from Mensink")
+        functions = [
+            _read_top_of_aquitards,
+            _read_thickness_of_aquitards,
+            _read_kd_of_aquitards,
+            _read_mask_of_aquifers,
+            _read_layer_kh,
+            _read_kv_area,
+        ]
+
+        for func in functions:
+            logger.info(f"Gathering PWN layer info with: {func.__name__}")
+
+            out = func(
+                ds,
+                datadir_mensink,
+                length_transition=length_transition,
+                cachedir=cachedir,
+                cachename=f"triw_{func.__name__}",
+                ix=ix,
+            )
+            ds_out.update(out)
 
     # Add top from ds
     ds_out["top"] = ds["top"]
@@ -820,6 +840,106 @@ def read_pwn_data2(ds, datadir=None, length_transition=100.0, cachedir=None):
     ds_out["top_transition"] = xr.zeros_like(ds["top"], dtype=bool)
 
     return ds_out
+
+
+@cache.cache_netcdf
+def _read_bergen(ds, datadir_bergen=None, length_transition=100.0, ix=None):
+    """reads PWN Bergen shapefiles and converts to a layer model Dataset
+
+
+    Parameters
+    ----------
+    modelgrid : flopy.discretization.vertexgrid.VertexGrid
+        modelgrid
+    datadir_bergen : str
+        directory with shapefiles.
+    plot : bool, optional
+        if True some plots are created during execution. Used for debugging.
+        The default is False.
+
+    Returns
+    -------
+    new_layer_ds : xarray Dataset
+        layer model from shapefiles
+
+    """
+    shp_names = ["1A", "1B", "1C", "1D", "q2"]
+    default_values = [-3.0, -5.0, -15.0, -20.0, -35.0]
+    shp_folders = ["Basis_aquitard", "Dikte_aquitard"]
+
+    data = {}
+
+    for shpfolder in shp_folders:
+        arrays = []
+
+        for j, shpnam in enumerate(shp_names):
+            if shpfolder == "Dikte_aquitard" and shpnam == "q2":
+                shpnam = "2"
+            shpnam = shpfolder[0:2].upper() + shpnam
+            try:
+                poly = gpd.read_file(
+                    os.path.join(datadir_bergen, "Laagopbouw", shpfolder, f"{shpnam}_pol.shp")
+                )
+            except Exception:
+                poly = gpd.read_file(
+                    os.path.join(datadir_bergen, "Laagopbouw", shpfolder, f"{shpnam}.shp"))
+            try:
+                pts = gpd.read_file(
+                    os.path.join(datadir_bergen, "Laagopbouw", shpfolder, f"{shpnam}_point.shp")
+                )
+            except Exception:
+                pts = None
+
+            # build array
+            if shpfolder == "Basis_aquitard":
+                default = default_values[j]
+            elif shpfolder == "Dikte_aquitard":
+                default = 0.0
+            # arr = default * np.ones_like(modelgrid.botm[0])
+            arr = np.full(ds.top.shape, default)
+
+            for i, row in poly.iterrows():
+                if not row.geometry.is_valid:
+                    geom = row.geometry.buffer(0.0)
+                else:
+                    geom = row.geometry
+                r = ix.intersect(geom)
+
+                # set zones with value from polygon
+                if row["VALUE"] != -999.0:
+                    # arr[tuple(zip(*r.cellids))] = row["VALUE"]
+                    arr[r.cellids.astype(int)] = row["VALUE"]
+
+                # set interpolated zones
+                elif pts is not None:
+                    # calculate kriging for with points
+                    mask_pts = pts.within(geom)
+                    ok = pykrige.ok.OrdinaryKriging(
+                        pts.geometry.x.values[mask_pts],
+                        pts.geometry.y.values[mask_pts],
+                        pts.loc[mask_pts, "VALUE"].values,
+                        variogram_model="linear",
+                        verbose=False,
+                        enable_plotting=False,
+                    )
+                    # xpts = modelgrid.xcellcenters[tuple(zip(*r.cellids))]
+                    # ypts = modelgrid.ycellcenters[tuple(zip(*r.cellids))]
+                    xpts = ds.x.values[r.cellids.astype(int)]
+                    ypts = ds.y.values[r.cellids.astype(int)]
+
+                    z, ss = ok.execute("points", xpts, ypts)
+
+                    # arr[tuple(zip(*r.cellids))] = z
+                    arr[r.cellids.astype(int)] = z
+                else:
+                    print(f"Did not parse {shpfolder}/{shpnam} {i}!")
+
+            arrays.append(arr)
+
+        dims = (*ds.top.dims, "bergen_layer")
+        data[shpfolder] = xr.DataArray(np.stack(arrays, axis=-1), dims=dims)
+
+    return xr.Dataset(data)
 
 
 @cache.cache_netcdf
@@ -867,7 +987,7 @@ def _read_top_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
             gdf, ds, ix=ix, buffer=length_transition
         )
         ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
-        
+
     return ds_out
 
 
