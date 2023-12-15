@@ -250,9 +250,7 @@ def combine_two_layer_models(
         layer_model_top_split["botm"].loc[{"layer": layer_names_regis_new}] = np.nan
 
     # extrapolate thickness of split layers
-    thick_regis = nlmod.dims.layers.calculate_thickness(layer_model_regis)
     thick_regis_top_split = nlmod.dims.layers.calculate_thickness(layer_model_top_split)
-    thick_pwn = nlmod.dims.layers.calculate_thickness(layer_model_pwn)
     thick_pwn_split = nlmod.dims.layers.calculate_thickness(layer_model_pwn_split)
 
     # best estimate thickness of unsplit regis layers
@@ -405,18 +403,20 @@ def combine_two_layer_models(
         )
         botm_regis.loc[{"layer": layers}] = botm_split
 
-
     """
     Connecting one PWN layer to multiple REGIS layers
     -------------------------------------------------
 
     In a previous step, extra layers were added to layer_model_pwn_split so that one PWN layer
-    can connect to multiple REGIS layers. The botm of those layers is now adjusted so that the
-    thickness of the layers is extrapolated from the REGIS layers. The botm is already at the
-    correct elevation for where the REGIS layers are present.
+    can connect to multiple REGIS layers. Outside of the PWN layers, the botm of the multiple 
+    REGIS layers is already at the correct elevation (layer_model_top_split). Inside of the PWN
+    layers only the lower botm and the upper top are at the correct elevation. The elevation 
+    intermediate botm's inside the PWN layers is set here.
 
-    
-
+    To estimate the thickness of the intermediate layers, the origional layer thickness over 
+    total thickness ratio of the REGIS layers at the the location of the PWN layer is used 
+    (thick_ratio_regis). This strategy is chosen so that the transition between PWN and REGIS
+    layers is smooth.
     """
     logger.info("Adjusting the botm of the newly split PWN layers")
     del layers_pwn, layers
@@ -440,7 +440,9 @@ def combine_two_layer_models(
         )
 
         # thick ratios of regis layers that need to be extrapolated into the areas of the pwn layers
-        total_thickness_layers_regis = thick_regis_top_split.sel(layer=layers).sum(dim="layer", skipna=False)
+        total_thickness_layers_regis = thick_regis_top_split.sel(layer=layers).sum(
+            dim="layer", skipna=False
+        )
         thick_ratio_regis = xr.where(
             total_thickness_layers_regis != 0.0,
             thick_regis_top_split.sel(layer=layers) / total_thickness_layers_regis,
@@ -466,7 +468,7 @@ def combine_two_layer_models(
         )
         botm_pwn.loc[{"layer": layers}] = botm_split
 
-    # Merge the two layer models
+    """Merge the two layer models"""
     logger.info("Merging the two layer models")
 
     layer_model_top = xr.Dataset(
@@ -492,12 +494,20 @@ def combine_two_layer_models(
             "gridtype": layer_model_regis.attrs["gridtype"],
         },
     )
-    
-    adjusted = dfk["Regis II v2.2"].isin(list(layer_names_regis_new_dict.keys())).values
-    layer_model_top["botm"].loc[{"layer": adjusted}] = botm_regis.loc[{"layer": adjusted}]
 
-    adjusted = dfk["ASSUMPTION1"].isin(list(layer_names_pwn_new_dict.keys())).values
-    layer_model_top["botm"].loc[{"layer": adjusted}] = botm_pwn.loc[{"layer": adjusted}]
+    isadjusted_botm_regis = (
+        dfk["Regis II v2.2"].isin(list(layer_names_regis_new_dict.keys())).values
+    )
+    layer_model_top["botm"].loc[{"layer": isadjusted_botm_regis}] = botm_regis.loc[
+        {"layer": isadjusted_botm_regis}
+    ]
+
+    isadjusted_botm_pwn = (
+        dfk["ASSUMPTION1"].isin(list(layer_names_pwn_new_dict.keys())).values
+    )
+    layer_model_top["botm"].loc[{"layer": isadjusted_botm_pwn}] = botm_pwn.loc[
+        {"layer": isadjusted_botm_pwn}
+    ]
 
     # introduce transition of layers
     if transition_model_pwn is not None:
@@ -540,7 +550,9 @@ def combine_two_layer_models(
 
                 var.loc[{"layer": layer, "icell2d": transi}] = qvalues
     else:
-        logger.info("No transition of the two layer models")
+        logger.info(
+            "No transition of the two layer models provided, resulting at sharp changes in kh, kv, and botm, at interface."
+        )
 
     layer_model_out = xr.concat((layer_model_top, layer_model_bothalf), dim="layer")
     layer_model_out["top"] = layer_model_regis["top"]
@@ -549,17 +561,10 @@ def combine_two_layer_models(
     # 1: regis
     # 2: pwn
     # 3: transition
-    cat_top = xr.zeros_like(layer_model_top_split[["botm", "kh", "kv"]], dtype=int)
-    cat_top = cat_top.where(
-        cond=layer_model_pwn_split[["botm", "kh", "kv"]].notnull(), other=1
-    )
-    cat_top = cat_top.where(
-        cond=layer_model_pwn_split[["botm", "kh", "kv"]].isnull(), other=2
-    )
+    cat_top = xr.where(valid_pwn_layers, 2, 1)
+
     if transition_model_pwn is not None:
-        cat_top = cat_top.where(
-            cond=~transition_model_pwn_split[["botm", "kh", "kv"]], other=3
-        )
+        cat_top = xr.where(transition_model_pwn_split[["botm", "kh", "kv"]], 3, cat_top)
 
     cat_botm = xr.ones_like(layer_model_bothalf[["botm", "kh", "kv"]], dtype=int)
     cat = xr.concat((cat_top, cat_botm), dim="layer")
@@ -740,172 +745,7 @@ def get_bergen_thickness(data, mask=False, transition=False):
         return transition
     else:
         return out
-
-
-def get_bergen_layer_model(data, mask=False, transition=False):
-    """
-    # b_1a, b_1b, b_1c, b_1d, b_q2 = data["Basis_aquitard"].transpose("bergen_layer", "icell2d")
-    # d_1a, d_1b, d_1c, d_1d, d_q2 = data["Dikte_aquitard"].transpose("bergen_layer", "icell2d")
-
-    # top = np.vstack([z_mv, b_1a, b_1b, b_1c, b_q2])
-
-    # bot = np.vstack([b_1a + d_1a, b_1b + d_1b, b_1c + d_1c, b_1d + d_1d, b_q2 + d_q2])
-
-    # # check tops
-    # minthick = 0.01
-
-    # for ilay in range(1, 5):
-    #     top[ilay] = np.where(
-    #         top[ilay] < bot[ilay - 1], top[ilay], bot[ilay - 1] - minthick
-    #     )
-
-    # # check bots
-    # for ilay in range(1, 5):
-    #     bot[ilay] = np.where(bot[ilay] < top[ilay], bot[ilay], top[ilay] - minthick)
-
-    # # add aquitards
-    # top2 = np.vstack(
-    #     [top[0], bot[0], top[1], bot[1], top[2], bot[2], top[3], bot[3], top[4]]
-    # )
-    # bot2 = np.vstack(
-    #     [bot[0], top[1], bot[1], top[2], bot[2], top[3], bot[3], top[4], bot[4]]
-    # )
-
-    # # create data arrays
-    # x = xr.DataArray(modelgrid.xcellcenters, dims=("icell2d"))
-    # y = xr.DataArray(modelgrid.ycellcenters, dims=("icell2d"))
-
-    # t_da = xr.DataArray(
-    #     top2,
-    #     coords={"layer": range(top2.shape[0]), "x": x, "y": y},
-    #     dims=("layer", "icell2d"),
-    # )
-    # b_da = xr.DataArray(
-    #     bot2,
-    #     coords={"layer": range(bot2.shape[0]), "x": x, "y": y},
-    #     dims=("layer", "icell2d"),
-    # )
-
-    # thickness = t_da - b_da
-
-    # #
-    # if plot:
-    #     cmap = plt.get_cmap("viridis")
-    #     vmin = b_da.min()
-    #     vmax = t_da.max()
-
-    #     fig, ax = plt.subplots(2, 5, figsize=(10, 10))
-
-    #     for i in range(4):
-    #         iax0, iax1 = ax[:, i]
-
-    #         iax0.set_aspect("equal")
-    #         iax1.set_aspect("equal")
-
-    #         mv2 = flopy.plot.PlotMapView(modelgrid=modelgrid, ax=iax0)
-    #         qm = mv2.plot_array(t_da.sel(layer=i), cmap=cmap, vmin=vmin, vmax=vmax)
-    #         mv2.plot_grid(color="k", lw=0.25)
-    #         iax0.set_title("top")
-    #         iax0.axis(modelgrid.extent)
-
-    #         mv3 = flopy.plot.PlotMapView(modelgrid=modelgrid, ax=iax1)
-    #         qm = mv3.plot_array(b_da.sel(layer=i), cmap=cmap, vmin=vmin, vmax=vmax)
-    #         mv3.plot_grid(color="k", lw=0.25)
-    #         iax1.set_title("botm")
-    #         iax1.axis(modelgrid.extent)
-
-    #         # mv.plot(ax=ax, column="VALUE", cmap=cmap, vmin=vmin, vmax=vmax, markersize=5)
-
-    #     fig.colorbar(qm, ax=ax, shrink=1.0)
-
-    #     #
-    #     for ilay in range(thickness.shape[0]):
-    #         cmap = plt.get_cmap("RdBu")
-    #         vmax = thickness[ilay].max()
-    #         vmin = 0.0
-
-    #         fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-    #         ax.set_aspect("equal")
-
-    #         mv2 = flopy.plot.PlotMapView(modelgrid=modelgrid, ax=ax)
-    #         qm = mv2.plot_array(
-    #             thickness.sel(layer=ilay), cmap=cmap, vmin=vmin, vmax=vmax
-    #         )
-    #         mv2.plot_grid(color="k", lw=0.25)
-    #         ax.set_title(f"Layer {ilay}")
-    #         ax.axis(modelgrid.extent)
-
-    #         fig.colorbar(qm, ax=ax, shrink=1.0)
-    #         fig.savefig(f"thick_{ilay}.png", bbox_inches="tight", dpi=150)
-
-    # # get
-    # clist = []
-    # cdefaults = [1.0, 100.0, 100.0, 1.0, 1.0]
-
-    # for j, letter in enumerate(["1A", "1B", "1C", "1D", "2"]):
-    #     poly = gpd.read_file(
-    #         os.path.join(shpdir, "..", "Bodemparams", f"C{letter}.shp")
-    #     )
-
-    #     arr = cdefaults[j] * np.ones_like(modelgrid.xcellcenters)
-
-    #     for i, row in poly.iterrows():
-    #         r = ix.intersects(row.geometry)
-    #         # arr[tuple(zip(*r.cellids))] = row["VALUE"]
-    #         arr[r.cellids.astype(int)] = row["VALUE"]
-
-    #     clist.append(arr)
-
-    # if plot:
-    #     parr = clist[0]
-
-    #     cmap = plt.get_cmap("viridis")
-    #     vmin = 0.0
-    #     vmax = parr.max()
-
-    #     fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-    #     ax.set_aspect("equal")
-    #     mv2 = flopy.plot.PlotMapView(modelgrid=modelgrid, ax=ax)
-    #     qm = mv2.plot_array(parr, cmap=cmap, vmin=vmin, vmax=vmax)
-    #     mv2.plot_grid(color="k", lw=0.25)
-    #     fig.colorbar(qm, ax=ax, shrink=1.0)
-    #     fig.tight_layout()
-
-    # #
-    # f_anisotropy = 0.25
-
-    # kh = xr.zeros_like(t_da)
-    # kh[0] = 7.0
-    # kh[1] = thickness[1] / clist[0] / f_anisotropy
-    # kh[2] = 7.0
-    # kh[3] = thickness[3] / clist[1] / f_anisotropy
-    # kh[4] = 12.0
-    # kh[5] = thickness[5] / clist[2] / f_anisotropy
-    # kh[6] = 15.0
-    # kh[7] = thickness[7] / clist[3] / f_anisotropy
-    # kh[8] = 20.0
-
-    # kv = xr.zeros_like(t_da)
-    # kv[0] = kh[0] * f_anisotropy
-    # kv[1] = thickness[1] / clist[0]
-    # kv[2] = kh[2] * f_anisotropy
-    # kv[3] = thickness[3] / clist[1]
-    # kv[4] = kh[4] * f_anisotropy
-    # kv[5] = thickness[5] / clist[2]
-    # kv[6] = kh[6] * f_anisotropy
-    # kv[7] = thickness[7] / clist[3]
-    # kv[8] = kh[8] * f_anisotropy
-
-    # # create new dataset
-    # new_layer_ds = xr.Dataset(data_vars={"top": t_da, "botm": b_da, "kh": kh, "kv": kv})
-
-    # new_layer_ds = new_layer_ds.assign_coords(
-    #     coords={"layer": [f"hlc_{i}" for i in range(new_layer_ds.dims["layer"])]}
-    # )
-
-    # return new_layer_ds
-    """
-
+        
 
 def get_bergen_kh(data, mask=False, anisotropy=5.0, transition=False):
     """
