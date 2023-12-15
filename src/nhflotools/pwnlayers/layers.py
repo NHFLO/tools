@@ -713,6 +713,7 @@ def get_bergen_thickness(data, mask=False, transition=False):
 
         def n(s):
             return f"{s}_mask"
+
     elif transition:
         # note the ~ operator
         _a = data[[var for var in data.variables if var.endswith("_transition")]]
@@ -721,6 +722,7 @@ def get_bergen_thickness(data, mask=False, transition=False):
 
         def n(s):
             return f"{s}_transition"
+
     else:
         a = data
         botm_nodata_isnan = botm
@@ -745,7 +747,7 @@ def get_bergen_thickness(data, mask=False, transition=False):
         return transition
     else:
         return out
-        
+
 
 def get_bergen_kh(data, mask=False, anisotropy=5.0, transition=False):
     """
@@ -957,6 +959,7 @@ def get_thickness(data, mask=False, transition=False):
 
         def n(s):
             return f"{s}_mask"
+
     elif transition:
         # note the ~ operator
         _a = data[[var for var in data.variables if var.endswith("_transition")]]
@@ -965,6 +968,7 @@ def get_thickness(data, mask=False, transition=False):
 
         def n(s):
             return f"{s}_transition"
+
     else:
         a = data
         botm_nodata_isnan = botm
@@ -1022,6 +1026,7 @@ def get_kh(data, mask=False, anisotropy=5.0, transition=False):
 
         def n(s):
             return f"{s}_mask"
+
     elif transition:
         # note the ~ operator
         _a = data[[var for var in data.variables if var.endswith("_transition")]]
@@ -1030,6 +1035,7 @@ def get_kh(data, mask=False, anisotropy=5.0, transition=False):
 
         def n(s):
             return f"{s}_transition"
+
     else:
         a = data
         b = thickness
@@ -1123,6 +1129,7 @@ def get_kv(data, mask=False, anisotropy=5.0, transition=False):
 
         def n(s):
             return f"{s}_mask"
+
     elif transition:
         # note the ~ operator
         _a = data[[var for var in data.variables if var.endswith("_transition")]]
@@ -1131,6 +1138,7 @@ def get_kv(data, mask=False, anisotropy=5.0, transition=False):
 
         def n(s):
             return f"{s}_transition"
+
     else:
         a = data
         b = thickness

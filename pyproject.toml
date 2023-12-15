@@ -84,12 +84,12 @@ features = ["dev"]
 
 [tool.hatch.envs.default.scripts]
 lint = [
-  "ruff check .",
-  "black --check .",
-  "isort --check-only --diff .",
+  "ruff check src/ tests/",
+  "black --check src/ tests/",
+  "isort --check-only --diff src/ tests/",
   "mypy src/",
 ]
-format = ["black .", "isort .", "ruff check --fix .", "lint",]
+format = ["black src/ tests/", "isort src/ tests/", "ruff check --fix src/ tests/", "ruff format src/ tests/", "lint",]
 test = ["pytest ./src/ ./tests/",]  # --doctest-modules
 fast-test = ["pytest ./tests/ -m \"not slow\"",]
 

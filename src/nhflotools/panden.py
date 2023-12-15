@@ -12,10 +12,10 @@ import warnings
 import flopy
 import geopandas as gpd
 import nlmod
-from nlmod import cache
 import numpy as np
 import pandas as pd
 import xarray as xr
+from nlmod import cache
 
 logger = logging.getLogger(__name__)
 

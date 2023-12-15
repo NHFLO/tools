@@ -4,16 +4,22 @@ import os
 import geopandas as gpd
 import nlmod
 import numpy as np
+import pykrige
 import xarray as xr
 from flopy.utils.gridintersect import GridIntersect
 from nlmod import cache
-import pykrige
 from shapely import MultiPolygon
 
 logger = logging.getLogger(__name__)
 
 
-def read_pwn_data2(ds, datadir_mensink=None, datadir_bergen=None, length_transition=100.0, cachedir=None):
+def read_pwn_data2(
+    ds,
+    datadir_mensink=None,
+    datadir_bergen=None,
+    length_transition=100.0,
+    cachedir=None,
+):
     """reads model data from a directory
 
 
@@ -96,7 +102,13 @@ def read_pwn_data2(ds, datadir_mensink=None, datadir_bergen=None, length_transit
 
 
 @cache.cache_netcdf
-def _read_bergen_basis_aquitards(ds, pathname=None, length_transition=100.0, ix=None, use_default_values_outside_polygons=False):
+def _read_bergen_basis_aquitards(
+    ds,
+    pathname=None,
+    length_transition=100.0,
+    ix=None,
+    use_default_values_outside_polygons=False,
+):
     """read basis of aquitards
 
 
@@ -127,13 +139,7 @@ def _read_bergen_basis_aquitards(ds, pathname=None, length_transition=100.0, ix=
         xarray dataset with True for all cells in the transition zone.
 
     """
-    default_values = {
-        "1A": -3.0,
-        "1B": -5.0,
-        "1C": -15.0,
-        "1D": -20.0,
-        "q2": -35.0
-    }
+    default_values = {"1A": -3.0, "1B": -5.0, "1C": -15.0, "1D": -20.0, "q2": -35.0}
     polynames = {
         "1A": "BA1A",
         "1B": "BA1B_pol",
@@ -150,11 +156,12 @@ def _read_bergen_basis_aquitards(ds, pathname=None, length_transition=100.0, ix=
     }
 
     logging.info("read basis of Bergen aquitards")
-    assert not (use_default_values_outside_polygons and length_transition is not None), "length_transition and use_default_values_outside_polygons are incompatible."
+    assert not (
+        use_default_values_outside_polygons and length_transition is not None
+    ), "length_transition and use_default_values_outside_polygons are incompatible."
 
     ds_out = xr.Dataset()
-    fd = os.path.join(
-            pathname, "Laagopbouw", "Basis_aquitard")
+    fd = os.path.join(pathname, "Laagopbouw", "Basis_aquitard")
 
     # Load shapes for which no Kriging is applied
     for name, polyname in polynames.items():
@@ -177,7 +184,12 @@ def _read_bergen_basis_aquitards(ds, pathname=None, length_transition=100.0, ix=
                 enable_plotting=False,
             )
             multipolygon = MultiPolygon(gdf_krieg.geometry.values)
-            r = ix.intersect(multipolygon, contains_centroid=False, min_area_fraction=None, shapetype="multipolygon").astype([('icell2d', int), ('ixshapes', 'O'), ('areas', float)])
+            r = ix.intersect(
+                multipolygon,
+                contains_centroid=False,
+                min_area_fraction=None,
+                shapetype="multipolygon",
+            ).astype([("icell2d", int), ("ixshapes", "O"), ("areas", float)])
             xpts = ds.x.sel(icell2d=r.icell2d).values
             ypts = ds.y.sel(icell2d=r.icell2d).values
             z, _ = ok.execute("points", xpts, ypts)
@@ -185,7 +197,7 @@ def _read_bergen_basis_aquitards(ds, pathname=None, length_transition=100.0, ix=
 
         # compute mask and transition zone
         ds_out[f"BER_BA{name}_mask"] = ~np.isnan(array)
-        
+
         if use_default_values_outside_polygons:
             array = array.where(ds_out[f"{name}_mask"], default_values[name])
             ds_out[f"BER_BA{name}_transition"] = xr.zeros_like(array, dtype=bool)
@@ -193,7 +205,9 @@ def _read_bergen_basis_aquitards(ds, pathname=None, length_transition=100.0, ix=
             in_transition = nlmod.dims.grid.gdf_to_bool_da(
                 gdf, ds, ix=ix, buffer=length_transition
             )
-            ds_out[f"BER_BA{name}_transition"] = in_transition & ~ds_out[f"BER_BA{name}_mask"]
+            ds_out[f"BER_BA{name}_transition"] = (
+                in_transition & ~ds_out[f"BER_BA{name}_mask"]
+            )
 
         ds_out[f"BER_BA{name}"] = array
     return ds_out
@@ -230,9 +244,7 @@ def _read_bergen_c_aquitards(ds, pathname, length_transition=100.0, ix=None):
 
     # read kD-waarden of aquifers
     for j, name in enumerate(["1A", "1B", "1C", "1D", "2"]):
-        fname = os.path.join(
-            pathname, "Bodemparams", "C{}.shp".format(name)
-        )
+        fname = os.path.join(pathname, "Bodemparams", "C{}.shp".format(name))
         gdf = gpd.read_file(fname)
         ds_out[f"BER_C{name}"] = nlmod.dims.grid.gdf_to_da(
             gdf, ds, column="VALUE", agg_method="nearest"
@@ -245,8 +257,15 @@ def _read_bergen_c_aquitards(ds, pathname, length_transition=100.0, ix=None):
 
     return ds_out
 
+
 @cache.cache_netcdf
-def _read_bergen_thickness_aquitards(ds, pathname=None, length_transition=100.0, ix=None, use_default_values_outside_polygons=False):
+def _read_bergen_thickness_aquitards(
+    ds,
+    pathname=None,
+    length_transition=100.0,
+    ix=None,
+    use_default_values_outside_polygons=False,
+):
     """read thickness of aquitards
 
     Parameters
@@ -276,13 +295,7 @@ def _read_bergen_thickness_aquitards(ds, pathname=None, length_transition=100.0,
         xarray dataset with True for all cells in the transition zone.
 
     """
-    default_values = {
-        "1A": 0.0,
-        "1B": 0.0,
-        "1C": 0.0,
-        "1D": 0.0,
-        "q2": 0.0
-    }
+    default_values = {"1A": 0.0, "1B": 0.0, "1C": 0.0, "1D": 0.0, "q2": 0.0}
     polynames = {
         "1A": "DI1A",
         "1B": "DI1B_pol",
@@ -299,7 +312,9 @@ def _read_bergen_thickness_aquitards(ds, pathname=None, length_transition=100.0,
     }
 
     logging.info("read thickness of Bergen aquitards")
-    assert not (use_default_values_outside_polygons and length_transition is not None), "length_transition and use_default_values_outside_polygons are incompatible."
+    assert not (
+        use_default_values_outside_polygons and length_transition is not None
+    ), "length_transition and use_default_values_outside_polygons are incompatible."
 
     ds_out = xr.Dataset()
     fd = os.path.join(pathname, "Laagopbouw", "Dikte_aquitard")
@@ -325,7 +340,9 @@ def _read_bergen_thickness_aquitards(ds, pathname=None, length_transition=100.0,
                 enable_plotting=False,
             )
             multipolygon = MultiPolygon(gdf_krieg.geometry.values)
-            r = ix.intersect(multipolygon, contains_centroid=False, min_area_fraction=None).astype([('icell2d', int), ('ixshapes', 'O'), ('areas', float)])
+            r = ix.intersect(
+                multipolygon, contains_centroid=False, min_area_fraction=None
+            ).astype([("icell2d", int), ("ixshapes", "O"), ("areas", float)])
             xpts = ds.x.sel(icell2d=r.icell2d).values
             ypts = ds.y.sel(icell2d=r.icell2d).values
             z, _ = ok.execute("points", xpts, ypts)
@@ -333,7 +350,7 @@ def _read_bergen_thickness_aquitards(ds, pathname=None, length_transition=100.0,
 
         # compute mask and transition zone
         ds_out[f"BER_DI{name}_mask"] = ~np.isnan(array)
-        
+
         if use_default_values_outside_polygons:
             array = array.where(ds_out[f"{name}_mask"], default_values[name])
             ds_out[f"BER_DI{name}_transition"] = xr.zeros_like(array, dtype=bool)
@@ -341,10 +358,13 @@ def _read_bergen_thickness_aquitards(ds, pathname=None, length_transition=100.0,
             in_transition = nlmod.dims.grid.gdf_to_bool_da(
                 gdf, ds, ix=ix, buffer=length_transition
             )
-            ds_out[f"BER_DI{name}_transition"] = in_transition & ~ds_out[f"BER_DI{name}_mask"]
+            ds_out[f"BER_DI{name}_transition"] = (
+                in_transition & ~ds_out[f"BER_DI{name}_mask"]
+            )
 
         ds_out[f"BER_DI{name}"] = array
     return ds_out
+
 
 @cache.cache_netcdf
 def _read_top_of_aquitards(ds, pathname, length_transition=100.0, ix=None):

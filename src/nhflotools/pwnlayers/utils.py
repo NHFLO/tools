@@ -7,16 +7,16 @@ import zipfile
 import flopy
 import geopandas as gpd
 import nlmod
-from nlmod import cache
 import numpy as np
 import pandas as pd
 import scipy
-from nhflotools.pwnlayers import triwaco
 import xarray as xr
+from nlmod import cache
 from numpy.lib.recfunctions import append_fields
 from shapely.geometry import Point
 from tqdm import tqdm
 
+from nhflotools.pwnlayers import triwaco
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +83,7 @@ def geodataframe_to_grid(
 #         mask = np.zeros((len(ds.x), len(ds.y)), dtype=int)
 #     else:
 #         mask = np.zeros((len(ds.x),), dtype=int)
-    
+
 #     for _, row in gdf.iterrows():
 #         # minx, miny, maxx, maxy
 #         in_extentx = (ds.x >= row.geometry.bounds[0] - buffer) & (ds.x <= row.geometry.bounds[2] + buffer)
@@ -652,7 +652,7 @@ def set_ds_grid(ds, extent, delr, delc, refined_extent=None):
 
 
 @cache.cache_netcdf
-def _read_top_of_aquitards(ds, pathname, length_transition=100., ix=None):
+def _read_top_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
     """read top of aquitards
 
 
@@ -692,14 +692,16 @@ def _read_top_of_aquitards(ds, pathname, length_transition=100., ix=None):
             gdf, ds, column="VALUE", agg_method="area_weighted", ix=ix
         )
         ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
-        in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(
+            gdf, ds, ix=ix, buffer=length_transition
+        )
         ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
 
     return ds_out
 
 
 @cache.cache_netcdf
-def _read_thickness_of_aquitards(ds, pathname, length_transition=100., ix=None):
+def _read_thickness_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
     """read thickness of aquitards
 
     Parameters
@@ -740,14 +742,16 @@ def _read_thickness_of_aquitards(ds, pathname, length_transition=100., ix=None):
             gdf, ds, column="VALUE", agg_method="area_weighted", ix=ix
         )
         ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
-        in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(
+            gdf, ds, ix=ix, buffer=length_transition
+        )
         ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
 
     return ds_out
 
 
 @cache.cache_netcdf
-def _read_kd_of_aquitards(ds, pathname, length_transition=100., ix=None):
+def _read_kd_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
     """read kd of aquitards
 
     Parameters
@@ -784,14 +788,16 @@ def _read_kd_of_aquitards(ds, pathname, length_transition=100., ix=None):
             gdf, ds, column="VALUE", agg_method="nearest"
         )
         ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
-        in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(
+            gdf, ds, ix=ix, buffer=length_transition
+        )
         ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
 
     return ds_out
 
 
 @cache.cache_netcdf
-def _read_mask_of_aquifers(ds, pathname, length_transition=100., ix=None):
+def _read_mask_of_aquifers(ds, pathname, length_transition=100.0, ix=None):
     """read mask of aquifers
 
     Parameters
@@ -833,14 +839,16 @@ def _read_mask_of_aquifers(ds, pathname, length_transition=100., ix=None):
             gdf, ds, column="VALUE", agg_method="nearest", ix=ix
         )
         ds_out[f"{key}_mask"] = ~np.isnan(ds_out[key])
-        in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(
+            gdf, ds, ix=ix, buffer=length_transition
+        )
         ds_out[f"{key}_transition"] = in_transition & ~ds_out[f"{key}_mask"]
 
     return ds_out
 
 
 @cache.cache_netcdf
-def _read_layer_kh(ds, pathname, length_transition=100., ix=None):
+def _read_layer_kh(ds, pathname, length_transition=100.0, ix=None):
     """read hydraulic conductivity of layers
 
     Parameters
@@ -853,7 +861,7 @@ def _read_layer_kh(ds, pathname, length_transition=100., ix=None):
         length of transition zone, by default 100.
     ix : GridIntersect, optional
         If not provided it is computed from ds.
-    
+
     Returns
     -------
     ds_out : xr.DataSet
@@ -879,14 +887,16 @@ def _read_layer_kh(ds, pathname, length_transition=100., ix=None):
             gdf, ds, column="VALUE", agg_method="area_weighted"
         )
         ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
-        in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(
+            gdf, ds, ix=ix, buffer=length_transition
+        )
         ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
 
     return ds_out
 
 
 @cache.cache_netcdf
-def _read_kv_area(ds, pathname, length_transition=100., ix=None):
+def _read_kv_area(ds, pathname, length_transition=100.0, ix=None):
     """read vertical resistance of layers
 
     Parameters
@@ -954,7 +964,9 @@ def _read_kv_area(ds, pathname, length_transition=100., ix=None):
                 gdf2.loc[i, "geometry"] = gdf.loc[i, "geometry"]
             gdf = gdf2
 
-        ds_out[name] = nlmod.dims.gdf_to_da(gdf, ds, column="VALUE", agg_method="nearest", ix=ix)
+        ds_out[name] = nlmod.dims.gdf_to_da(
+            gdf, ds, column="VALUE", agg_method="nearest", ix=ix
+        )
 
         nanmask = np.isnan(ds_out[name])
         if name == "C11AREA":
@@ -1156,9 +1168,7 @@ def _read_fluzo(ds, datadir):
     if datadir is None:
         fname = "data/extracted/BasisbestandenNHDZmodelPWN_CvG_20181022/grid.teo"
     else:
-        fname = os.path.join(
-            datadir, "Grid", "grid.teo"
-        )
+        fname = os.path.join(datadir, "Grid", "grid.teo")
     grid = triwaco.read_teo(fname)
     gdf = triwaco.get_node_gdf(grid, extent=ds.extent)
     gdf["GWA20022015"] = ado["GWA20022015"][gdf.index]
