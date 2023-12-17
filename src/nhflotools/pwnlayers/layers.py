@@ -352,12 +352,19 @@ def combine_two_layer_models(
             ).min(dim="min"),
         )
         total_thickness_layers = top_total - botm_total
+        assert (
+            total_thickness_layers >= 0.0
+        ).all(), "Total thickness of layers should be positive"
 
         # thick ratios of pwn layers that need to be extrapolated into the areas of the regis layers
         thick_ratio_pwn = xr.where(
             total_thickness_layers != 0.0,
             thick_pwn_split.sel(layer=layers) / total_thickness_layers,
             0.0,
+
+
+
+
         )
 
         for layer in new_layers:
@@ -449,19 +456,36 @@ def combine_two_layer_models(
             0.0,
         )
 
-        # Top of combined layers
         top_total = xr.where(
             top_pwn.sel(layer=name).notnull(),
             top_pwn.sel(layer=name),
             top_regis.sel(layer=layers_regis[0]),
         )
+        _top = top_pwn.sel(layer=slice(name)).min(dim="layer")
+        top_total = top_total.where(
+            ~((top_total > _top) & _top.notnull()),
+            _top
+        )
+        _top = top_pwn.sel(layer=slice(name, None)).max(dim="layer")
+        top_total = top_total.where(
+            ~((top_total < _top) & _top.notnull()),
+            _top
+        )
 
+        # Botm of combined layers
         botm_total = xr.where(
             layer_model_pwn["botm"].sel(layer=name).notnull(),
             layer_model_pwn["botm"].sel(layer=name),
             layer_model_regis["botm"].sel(layer=layers_regis[-1]),
         )
+        botm_total = botm_total.where(
+            botm_total < top_total,
+            top_total,
+        )
         total_thickness_layers = top_total - botm_total
+        assert (
+            total_thickness_layers >= 0.0
+        ).all(), "Total thickness of layers should be positive"
 
         botm_split = top_total - (thick_ratio_regis * total_thickness_layers).cumsum(
             dim="layer", skipna=False
