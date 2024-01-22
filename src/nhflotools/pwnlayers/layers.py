@@ -361,10 +361,6 @@ def combine_two_layer_models(
             total_thickness_layers != 0.0,
             thick_pwn_split.sel(layer=layers) / total_thickness_layers,
             0.0,
-
-
-
-
         )
 
         for layer in new_layers:
