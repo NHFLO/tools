@@ -166,6 +166,7 @@ def _read_bergen_basis_aquitards(
     # Load shapes for which no Kriging is applied
     for name, polyname in polynames.items():
         gdf = gpd.read_file(os.path.join(fd, f"{polyname}.shp"))
+        gdf.geometry = gdf.make_valid()
         gdf_fill = gdf[gdf.VALUE != -999.0]  # -999 is Krieged
         gdf_krieg = gdf[gdf.VALUE == -999.0]
         array = nlmod.dims.grid.gdf_to_da(
@@ -246,6 +247,7 @@ def _read_bergen_c_aquitards(ds, pathname, length_transition=100.0, ix=None):
     for j, name in enumerate(["1A", "1B", "1C", "1D", "2"]):
         fname = os.path.join(pathname, "Bodemparams", "C{}.shp".format(name))
         gdf = gpd.read_file(fname)
+        gdf.geometry = gdf.make_valid()
         ds_out[f"BER_C{name}"] = nlmod.dims.grid.gdf_to_da(
             gdf, ds, column="VALUE", agg_method="nearest"
         )
@@ -322,6 +324,7 @@ def _read_bergen_thickness_aquitards(
     # Load shapes for which no Kriging is applied
     for name, polyname in polynames.items():
         gdf = gpd.read_file(os.path.join(fd, f"{polyname}.shp"))
+        gdf.geometry = gdf.make_valid()
         gdf_fill = gdf[gdf.VALUE != -999.0]  # -999 is Krieged
         gdf_krieg = gdf[gdf.VALUE == -999.0]
         array = nlmod.dims.grid.gdf_to_da(
@@ -402,7 +405,7 @@ def _read_top_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
             pathname, "laagopbouw", "Top_aquitard", "{}.shp".format(name)
         )
         gdf = gpd.read_file(fname)
-        gdf.geometry = gdf.buffer(0)
+        gdf.geometry = gdf.make_valid()
         ds_out[name] = nlmod.dims.grid.gdf_to_da(
             gdf, ds, column="VALUE", agg_method="area_weighted", ix=ix
         )
@@ -452,7 +455,7 @@ def _read_thickness_of_aquitards(ds, pathname, length_transition=100.0, ix=None)
         )
 
         gdf = gpd.read_file(fname)
-        gdf.geometry = gdf.buffer(0)
+        gdf.geometry = gdf.make_valid()
         ds_out[name] = nlmod.dims.grid.gdf_to_da(
             gdf, ds, column="VALUE", agg_method="area_weighted", ix=ix
         )
@@ -499,6 +502,7 @@ def _read_kd_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
             pathname, "Bodemparams", "KDwaarden_aquitards", "{}.shp".format(name)
         )
         gdf = gpd.read_file(fname)
+        gdf.geometry = gdf.make_valid()
         ds_out[name] = nlmod.dims.grid.gdf_to_da(
             gdf, ds, column="VALUE", agg_method="nearest"
         )
@@ -549,7 +553,7 @@ def _read_mask_of_aquifers(ds, pathname, length_transition=100.0, ix=None):
             "masker_aquitard{}_kd.shp".format(name),
         )
         gdf = gpd.read_file(fname)
-        gdf.geometry = gdf.buffer(0)
+        gdf.geometry = gdf.make_valid()
         ds_out[key] = nlmod.dims.gdf_to_da(
             gdf, ds, column="VALUE", agg_method="nearest", ix=ix
         )
@@ -598,6 +602,7 @@ def _read_layer_kh(ds, pathname, length_transition=100.0, ix=None):
             pathname, "Bodemparams", "Kwaarden_aquifers", "{}.shp".format(name)
         )
         gdf = gpd.read_file(fname)
+        gdf.geometry = gdf.make_valid()
         ds_out[name] = nlmod.dims.gdf_to_da(
             gdf, ds, column="VALUE", agg_method="area_weighted"
         )
@@ -653,7 +658,7 @@ def _read_kv_area(ds, pathname, length_transition=100.0, ix=None):
             pathname, "Bodemparams", "Cwaarden_aquitards", "{}.shp".format(name)
         )
         gdf = gpd.read_file(fname)
-        gdf.geometry = gdf.buffer(0)
+        gdf.geometry = gdf.make_valid()
 
         # some overlying shapes give different results when aggregated with
         # nearest. Remove underlying shape to get same results as Triwaco
@@ -722,6 +727,7 @@ def _read_topsysteem(ds, pathname):
     # read surface level
     fname = os.path.join(pathname, "Topsyst", "mvpolder2007.shp")
     gdf = gpd.read_file(fname)
+    gdf.geometry = gdf.make_valid()
     ds_out["mvpolder"] = nlmod.dims.gdf_to_da(
         gdf, ds, column="VALUE", agg_method="nearest"
     )
@@ -735,7 +741,7 @@ def _read_topsysteem(ds, pathname):
 
     fname = os.path.join(pathname, "Topsyst", "gem_polderpeil2007.shp")
     gdf = gpd.read_file(fname)
-    gdf.geometry = gdf.buffer(0)
+    gdf.geometry = gdf.make_valid()
     ds_out["gempeil"] = nlmod.dims.gdf_to_da(
         gdf, ds, column="VALUE", agg_method="area_weighted"
     )
@@ -748,7 +754,7 @@ def _read_topsysteem(ds, pathname):
 
     fname = os.path.join(pathname, "Topsyst", "codes_voor_typedrainage.shp")
     gdf = gpd.read_file(fname)
-    gdf.geometry = gdf.buffer(0)
+    gdf.geometry = gdf.make_valid()
     ds_out["codesoort"] = nlmod.dims.gdf_to_da(
         gdf, ds, column="VALUE", agg_method="nearest"
     )
