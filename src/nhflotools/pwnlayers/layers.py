@@ -688,7 +688,7 @@ def get_pwn_layer_model(
     )
 
 
-def get_bergen_thickness(data, mask=False, transition=False):
+def get_bergen_thickness(data, mask=False, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the thickness of layers in a given dataset.
 
@@ -724,7 +724,7 @@ def get_bergen_thickness(data, mask=False, transition=False):
         If mask is False, returns the thickness values as a DataArray or ndarray.
 
     """
-    botm = get_bergen_botm(data, mask=mask, transition=transition)
+    botm = get_bergen_botm(data, mask=mask, transition=transition, fix_min_layer_thickness=fix_min_layer_thickness)
 
     if mask:
         _a = data[[var for var in data.variables if var.endswith("_mask")]]
@@ -752,10 +752,13 @@ def get_bergen_thickness(data, mask=False, transition=False):
 
     if "top" in data.data_vars:
         top_botm = xr.concat((a[n("top")], botm_nodata_isnan), dim="layer")
+
+        if fix_min_layer_thickness and not mask and not transition:
+            top_botm.values = np.minimum.accumulate(top_botm.values, axis=top_botm.dims.index("layer"))
     else:
         top_botm = botm
 
-    out = top_botm.diff(dim="layer")
+    out = -top_botm.diff(dim="layer")
 
     if mask:
         return ~np.isnan(out)
@@ -766,12 +769,17 @@ def get_bergen_thickness(data, mask=False, transition=False):
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
         return transition
     else:
+        if (out < 0.0).any():
+            logger.warning("Botm Bergen is not monotonically decreasing. Resulting in negative conductivity values.")
         return out
 
 
 def get_bergen_kh(data, mask=False, anisotropy=5.0, transition=False):
     """
     Calculate the hydraulic conductivity (kh) based on the given data.
+
+    Values may be applied everywhere. Use mask and/or thickness to determine
+    where the values are valid.
 
     Parameters
     ----------
@@ -803,7 +811,7 @@ def get_bergen_kh(data, mask=False, anisotropy=5.0, transition=False):
     """
     if mask:
         # valid value if valid thickness and valid BER_C
-        out = get_bergen_thickness(data, mask=True, transition=False).rename("kv")
+        out = get_bergen_thickness(data, mask=True, transition=False).rename("kh")
         out[dict(layer=1)] *= data["BER_C1A_mask"]
         out[dict(layer=3)] *= data["BER_C1B_mask"]
         out[dict(layer=5)] *= data["BER_C1C_mask"]
@@ -812,7 +820,7 @@ def get_bergen_kh(data, mask=False, anisotropy=5.0, transition=False):
 
     elif transition:
         # Valid value if valid thickness or valid BER_C
-        out = get_bergen_thickness(data, mask=True, transition=False).rename("kv")
+        out = get_bergen_thickness(data, mask=True, transition=False).rename("kh")
         out[dict(layer=1)] |= data["BER_C1A_mask"]
         out[dict(layer=3)] |= data["BER_C1B_mask"]
         out[dict(layer=5)] |= data["BER_C1C_mask"]
@@ -821,10 +829,7 @@ def get_bergen_kh(data, mask=False, anisotropy=5.0, transition=False):
 
     else:
         thickness = get_bergen_thickness(data, mask=mask, transition=transition)
-
-        # 1 where out_mask is True, nan where out_mask is False
-        out_mask = get_bergen_thickness(data, mask=True, transition=False)
-        out = thickness.where(~out_mask, other=1.0).rename("kv")
+        out = xr.ones_like(thickness).rename("kh")
 
         out[dict(layer=[0, 2, 4, 6, 8])] *= [8.0, 7.0, 12.0, 15.0, 20.0]
         out[dict(layer=1)] = thickness[dict(layer=1)] / data["BER_C1A"] * anisotropy
@@ -873,7 +878,7 @@ def get_bergen_kv(data, mask=False, anisotropy=5.0, transition=False):
     return out
 
 
-def get_bergen_botm(data, mask=False, transition=False):
+def get_bergen_botm(data, mask=False, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the bottom elevation of each layer in the Bergen model.
 
@@ -922,6 +927,7 @@ def get_bergen_botm(data, mask=False, transition=False):
         ),
         dim="layer",
     )
+
     if mask:
         return ~np.isnan(out)
     elif transition:
@@ -931,10 +937,26 @@ def get_bergen_botm(data, mask=False, transition=False):
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
         return transition
     else:
+        # Use ffill here to fill the nan's with the previous layer. Layer
+        # thickness is zero for non existing layers
+        out = out.ffill(dim="layer")
+
+        assert out.dims == ('layer', 'icell2d'), "Array is transposed."
+
+        if (out.values[1:] > out.values[:-1]).sum() != 0:
+            is_err = (out.values[1:] > out.values[:-1]).sum(axis=1)
+            is_val = (out.values[1:] < out.values[:-1]).sum(axis=1)
+            err_msg = {f"layer{i}": f"{e * 100 / (e + v):.0f}%" for i, (e, v) in enumerate(zip(is_err, is_val))}
+            logger.warning(f"Botm is not monotonically decreasing.: {err_msg}.")
+
+            if fix_min_layer_thickness:
+                logger.warning("Fixing monotonically decreasing botm's and assume higher layers better represent reality.")
+                out.values = np.minimum.accumulate(out.values, axis=out.dims.index("layer"))
+
         return out
 
 
-def get_thickness(data, mask=False, transition=False):
+def get_thickness(data, mask=False, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the thickness of layers in a given dataset.
 
@@ -970,7 +992,7 @@ def get_thickness(data, mask=False, transition=False):
         If mask is False, returns the thickness values as a DataArray or ndarray.
 
     """
-    botm = get_botm(data, mask=mask, transition=transition)
+    botm = get_botm(data, mask=mask, transition=transition, fix_min_layer_thickness=fix_min_layer_thickness)
 
     if mask:
         _a = data[[var for var in data.variables if var.endswith("_mask")]]
@@ -998,10 +1020,14 @@ def get_thickness(data, mask=False, transition=False):
 
     if "top" in data.data_vars:
         top_botm = xr.concat((a[n("top")], botm_nodata_isnan), dim="layer")
+
+        if fix_min_layer_thickness and not mask and not transition:
+            top_botm.values = np.minimum.accumulate(top_botm.values, axis=top_botm.dims.index("layer"))
+            
     else:
         top_botm = botm
 
-    out = top_botm.diff(dim="layer")
+    out = -top_botm.diff(dim="layer")
 
     if mask:
         return ~np.isnan(out)
@@ -1012,10 +1038,14 @@ def get_thickness(data, mask=False, transition=False):
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
         return transition
     else:
+        out = out.where((np.isnan(out) | (out > 0.0 ) | (out < -0.01)), other=0.0)
+        
+        if (out < 0.0).any():
+            logger.warning("Botm is not monotonically decreasing.")
         return out
 
 
-def get_kh(data, mask=False, anisotropy=5.0, transition=False):
+def get_kh(data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the hydraulic conductivity (kh) based on the given data.
 
@@ -1037,7 +1067,8 @@ def get_kh(data, mask=False, anisotropy=5.0, transition=False):
 
     """
 
-    thickness = get_thickness(data, mask=mask, transition=transition)
+    thickness = get_thickness(data, mask=mask, transition=transition, fix_min_layer_thickness=fix_min_layer_thickness)
+    assert not (thickness < 0.0).any(), "Negative thickness values are not allowed."
 
     if mask:
         _a = data[[var for var in data.variables if var.endswith("_mask")]]
@@ -1058,7 +1089,10 @@ def get_kh(data, mask=False, anisotropy=5.0, transition=False):
 
     else:
         a = data
-        b = thickness
+    
+        if fix_min_layer_thickness:
+            # Should not matter too much because mask == False
+            b = thickness.where(thickness != 0., other=0.005)
 
         def n(s):
             return s
@@ -1115,7 +1149,7 @@ def get_kh(data, mask=False, anisotropy=5.0, transition=False):
         return out
 
 
-def get_kv(data, mask=False, anisotropy=5.0, transition=False):
+def get_kv(data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the hydraulic conductivity (KV) for different aquifers and aquitards.
 
@@ -1140,7 +1174,7 @@ def get_kv(data, mask=False, anisotropy=5.0, transition=False):
         # Calculate hydraulic conductivity values with a mask applied
         kv_values_masked = get_kv(data, mask=True)
     """
-    thickness = get_thickness(data, mask=mask, transition=transition)
+    thickness = get_thickness(data, mask=mask, transition=transition, fix_min_layer_thickness=fix_min_layer_thickness)
 
     if mask:
         _a = data[[var for var in data.variables if var.endswith("_mask")]]
@@ -1162,6 +1196,10 @@ def get_kv(data, mask=False, anisotropy=5.0, transition=False):
     else:
         a = data
         b = thickness
+
+        if fix_min_layer_thickness:
+            # Should not matter too much because mask == False
+            b = thickness.where(thickness != 0., other=0.005)
 
         def n(s):
             return s
@@ -1198,7 +1236,7 @@ def get_kv(data, mask=False, anisotropy=5.0, transition=False):
         return out
 
 
-def get_botm(data, mask=False, transition=False):
+def get_botm(data, mask=False, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the bottom elevation of each layer in the model.
 
@@ -1252,6 +1290,7 @@ def get_botm(data, mask=False, transition=False):
         ),
         dim="layer",
     )
+
     if mask:
         return ~np.isnan(out)
     elif transition:
@@ -1261,4 +1300,20 @@ def get_botm(data, mask=False, transition=False):
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
         return transition
     else:
+        # Use ffill here to fill the nan's with the previous layer. Layer
+        # thickness is zero for non existing layers
+        out = out.ffill(dim="layer")
+
+        assert out.dims == ('layer', 'icell2d'), "Array is transposed."
+
+        if (out.values[1:] > out.values[:-1]).sum() != 0:
+            is_err = (out.values[1:] > out.values[:-1]).sum(axis=1)
+            is_val = (out.values[1:] < out.values[:-1]).sum(axis=1)
+            err_msg = {f"layer{i}": f"{e * 100 / (e + v):.0f}%" for i, (e, v) in enumerate(zip(is_err, is_val))}
+            logger.warning(f"Botm is not monotonically decreasing.: {err_msg}.")
+
+            if fix_min_layer_thickness:
+                logger.warning("Fixing monotonically decreasing botm's and assume higher layers better represent reality.")
+                out.values = np.minimum.accumulate(out.values, axis=out.dims.index("layer"))
+
         return out
