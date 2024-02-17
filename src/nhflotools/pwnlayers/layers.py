@@ -5,7 +5,7 @@ import numpy as np
 import xarray as xr
 from scipy.interpolate import griddata
 
-from .layers_read import read_pwn_data2
+from .io import read_pwn_data2
 
 logger = logging.getLogger(__name__)
 
