@@ -53,11 +53,11 @@ def get_pwn_layer_model(ds_regis, data_path_mensink, data_path_bergen, fname_kop
 
     # Get PWN layer models
     (
-        layer_model_pwn,
-        transition_model_pwn,
+        layer_model_mensink,
+        transition_model_mensink,
         layer_model_bergen,
         transition_model_bergen,
-    ) = get_pwn_layer_model(
+    ) = get_mensink_layer_model(
         ds_regis,
         datadir_mensink=data_path_mensink,
         datadir_bergen=data_path_bergen,
@@ -70,37 +70,37 @@ def get_pwn_layer_model(ds_regis, data_path_mensink, data_path_bergen, fname_kop
     df_koppeltabel = df_koppeltabel[~df_koppeltabel["ASSUMPTION1"].isna()]
 
     # Combine PWN layer model with REGIS layer model
-    layer_model_pwn_regis, layer_model_pwn_regis_cat = combine_two_layer_models(
+    layer_model_mensink_regis, layer_model_mensink_regis_cat = combine_two_layer_models(
         df_koppeltabel,
         layer_model_regis,
-        layer_model_pwn,
-        transition_model_pwn,
+        layer_model_mensink,
+        transition_model_mensink,
         koppeltabel_header_regis="Regis II v2.2",
         koppeltabel_header_pwn="ASSUMPTION1",
     )
 
     # Combine PWN layer model with Bergen layer model and REGIS layer model
     (
-        layer_model_pwn_bergen_regis,
-        layer_model_pwn_bergen_regis_cat,
+        layer_model_mensink_bergen_regis,
+        layer_model_mensink_bergen_regis_cat,
     ) = combine_two_layer_models(
         df_koppeltabel,
-        layer_model_pwn_regis,
+        layer_model_mensink_regis,
         layer_model_bergen,
-        transition_model_pwn,
+        transition_model_bergen,
         koppeltabel_header_regis="Regis II v2.2",
         koppeltabel_header_pwn="ASSUMPTION1",
     )
 
     # Remove inactive layers and set kh and kv of non-existing cells to default values
-    layer_model_pwn_bergen_regis["kh"] = layer_model_pwn_bergen_regis.kh.where(
-        layer_model_pwn_bergen_regis.kh != 0.0, np.nan
+    layer_model_mensink_bergen_regis["kh"] = layer_model_mensink_bergen_regis.kh.where(
+        layer_model_mensink_bergen_regis.kh != 0.0, np.nan
     )
-    layer_model_pwn_bergen_regis["kv"] = layer_model_pwn_bergen_regis.kv.where(
-        layer_model_pwn_bergen_regis.kv != 0.0, np.nan
+    layer_model_mensink_bergen_regis["kv"] = layer_model_mensink_bergen_regis.kv.where(
+        layer_model_mensink_bergen_regis.kv != 0.0, np.nan
     )
     layer_model_active = nlmod.layers.fill_nan_top_botm_kh_kv(
-        layer_model_pwn_bergen_regis,
+        layer_model_mensink_bergen_regis,
         anisotropy=5.0,
         fill_value_kh=5.0,
         fill_value_kv=1.0,
@@ -116,22 +116,22 @@ def get_pwn_layer_model(ds_regis, data_path_mensink, data_path_bergen, fname_kop
 def combine_two_layer_models(
     df_koppeltabel,
     layer_model_regis,
-    layer_model_pwn,
-    transition_model_pwn=None,
+    layer_model_other,
+    transition_model_other=None,
     koppeltabel_header_regis="Regis II v2.2",
-    koppeltabel_header_pwn="ASSUMPTION1",
+    koppeltabel_header_other="ASSUMPTION1",
 ):
     """
     Combine the layer models of REGISII and PWN.
 
-    The values of the PWN layer model are used where the layer_model_pwn is not nan.
-    The values of the REGISII layer model are used where the layer_model_pwn is nan
-    and transition_model_pwn is False. The remaining values are where the
-    transition_model_pwn is True. Those values are linearly interpolated from the
+    The values of the PWN layer model are used where the layer_model_other is not nan.
+    The values of the REGISII layer model are used where the layer_model_other is nan
+    and transition_model_other is False. The remaining values are where the
+    transition_model_other is True. Those values are linearly interpolated from the
     REGISII layer model to the PWN layer model.
 
-    `layer_model_regis` and `layer_model_pwn` should have the same grid.
-    The layer names of `layer_model_pwn` should be present in koppeltabel[`koppeltabel_header_pwn`].
+    `layer_model_regis` and `layer_model_other` should have the same grid.
+    The layer names of `layer_model_other` should be present in koppeltabel[`koppeltabel_header_other`].
     The layer names of `layer_model_regis` should be present in koppeltabel[`koppeltabel_header_regis`].
     To guarantee the coupling is always valid, the koppeltabel should be defined for all interlaying
     REGISII layers, this is not enforced.
@@ -144,27 +144,27 @@ def combine_two_layer_models(
     Parameters
     ----------
     df_koppeltabel : pandas DataFrame
-        DataFrame containing the koppeltabel. koppeltabel[`koppeltabel_header_pwn`]
-        should contain the layer names of `layer_model_pwn` and
+        DataFrame containing the koppeltabel. koppeltabel[`koppeltabel_header_other`]
+        should contain the layer names of `layer_model_other` and
         koppeltabel[`koppeltabel_header_regis`] should contain the layer names of
         `layer_model_regis`.
     layer_model_regis : xarray Dataset
         Dataset containing the layer model of REGISII. It should contain the
         variables 'kh', 'kv', 'botm', and 'top'.
-    layer_model_pwn : xarray Dataset
+    layer_model_other : xarray Dataset
         Dataset containing the layer model of PWN. It should have nan values
         where the layer model is not defined. It should contain the variables
         'kh', 'kv', 'botm', and 'top'.
-    transition_model_pwn : xarray Dataset, optional
+    transition_model_other : xarray Dataset, optional
         Dataset containing the transition model of PWN. It should contain
         the variables 'kh', 'kv', 'botm'. The default is None.
-        It should be True where the transition between layer_model_regis and layer_model_pwn
+        It should be True where the transition between layer_model_regis and layer_model_other
         is defined and False where it is not. Where True, the values of are linearly interpolated
         from the REGISII layer model to the PWN layer model. If None, the transition is not used.
     koppeltabel_header_regis : str, optional
         Column name of the koppeltabel containing the REGISII layer names.
         The default is 'Regis II v2.2'.
-    koppeltabel_header_pwn : str, optional
+    koppeltabel_header_other : str, optional
         Column name of the koppeltabel containing the PWN layer names.
         The default is 'ASSUMPTION1'.
 
@@ -173,74 +173,65 @@ def combine_two_layer_models(
     layer_model_out : xarray Dataset
         Dataset containing the combined layer model.
 
-        layer_model_regis contains all layers of REGISII. Only a subset of those layers
-    connect to pwn. The connection is defined in the koppeltabel.
+        layer_model_regis contains all layers of REGISII. Only a subset of those layers connect to other. The connection is defined in the koppeltabel.
 
     Notes
     -----
-    layer_model_tophalf, layer_model_pwn:
-        The top layers are the layers that that are connected via the koppeltabel. It
-        requires the koppeltabel to be valid for those layers and those layers should
-        be present in layer_model_pwn.
+    layer_model_tophalf, layer_model_other:
+        The top layers are the layers that are connected via the koppeltabel. It requires the koppeltabel to be valid for those layers and those layers should be present in layer_model_other.
 
-    layer_model_pwn_split, layer_model_top_split:
-        If multiple pwn layers are connected to a single regis layer, the regis layer
-        is split into multiple layers. The thickness of the split layers is extrapolated
-        from the pwn layers.
-        If multiple regis layers are connected to a single pwn layer, the pwn layer
-        is split into multiple layers. The thickness of the split layers is extrapolated
-        from the regis layers.
+    layer_model_other_split, layer_model_top_split:
+        If multiple other layers are connected to a single regis layer, the regis layer is split into multiple layers. The thickness of the split layers is extrapolated from the other layers.
+        If multiple regis layers are connected to a single other layer, the other layer is split into multiple layers. The thickness of the split layers is extrapolated from the regis layers.
 
-    # Bottom layers
+    Bottom layers:
     layer_model_bothalf:
-        The bottom layers are the layers that are not connected via the koppeltabel and
-        the layers from layer_model_regis are used.
-        layer_model_pwn_split is a ds
+        The bottom layers are the layers that are not connected via the koppeltabel and the layers from layer_model_regis are used.
+        layer_model_other_split is a ds
 
-    # connection notes
-    - nan values in layer_model_pwn means that those values are not defined in the pwn layer model.
-        The values of layer_model_regis are used instead.
-    - A thickness of zero in layer_model_pwn means that the layer is absent in the pwn layer model.
+    Connection notes:
+    - NaN values in layer_model_other mean that those values are not defined in the other layer model. The values of layer_model_regis are used instead.
+    - A thickness of zero in layer_model_other means that the layer is absent in the other layer model.
 
     """
     dfk = df_koppeltabel.copy()
 
     assert (
-        layer_model_regis.attrs["extent"] == layer_model_pwn.attrs["extent"]
+        layer_model_regis.attrs["extent"] == layer_model_other.attrs["extent"]
     ), "Extent of layer models are not equal"
     assert (
-        layer_model_regis.attrs["gridtype"] == layer_model_pwn.attrs["gridtype"]
+        layer_model_regis.attrs["gridtype"] == layer_model_other.attrs["gridtype"]
     ), "Gridtype of layer models are not equal"
     assert all(
         var in layer_model_regis.variables for var in ["kh", "kv", "botm", "top"]
     ), "Variable 'kh', 'kv', 'botm', or 'top' is missing in layer_model_regis"
     assert all(
-        var in layer_model_pwn.variables for var in ["kh", "kv", "botm", "top"]
-    ), "Variable 'kh', 'kv', 'botm', or 'top' is missing in layer_model_pwn"
-    if transition_model_pwn is not None:
+        var in layer_model_other.variables for var in ["kh", "kv", "botm", "top"]
+    ), "Variable 'kh', 'kv', 'botm', or 'top' is missing in layer_model_other"
+    if transition_model_other is not None:
         assert all(
-            var in transition_model_pwn.variables for var in ["kh", "kv", "botm"]
-        ), "Variable 'kh', 'kv', or 'botm' is missing in transition_model_pwn"
+            var in transition_model_other.variables for var in ["kh", "kv", "botm"]
+        ), "Variable 'kh', 'kv', or 'botm' is missing in transition_model_other"
         assert all(
             [
                 np.issubdtype(dtype, bool)
-                for dtype in transition_model_pwn.dtypes.values()
+                for dtype in transition_model_other.dtypes.values()
             ]
-        ), "Variable 'kh', 'kv', and 'botm' in transition_model_pwn should be boolean"
+        ), "Variable 'kh', 'kv', and 'botm' in transition_model_other should be boolean"
 
     assert (
         not dfk[koppeltabel_header_regis].str.contains("_").any()
-        and not dfk[koppeltabel_header_pwn].str.contains("_").any()
-    ), "koppeltabel_header_regis and koppeltabel_header_pwn should not contain '_'"
+        and not dfk[koppeltabel_header_other].str.contains("_").any()
+    ), "koppeltabel_header_regis and koppeltabel_header_other should not contain '_'"
 
     # Basename can occur multiple times if previously combined
     basenames_regis = [layer.split("_")[0] for layer in layer_model_regis.layer.values]
-    basenames_pwn = [layer.split("_")[0] for layer in layer_model_pwn.layer.values]
+    basenames_other = [layer.split("_")[0] for layer in layer_model_other.layer.values]
 
     # Only select part of the table that appears in the two layer models
     dfk_mask = dfk[koppeltabel_header_regis].isin(basenames_regis) & dfk[
-        koppeltabel_header_pwn
-    ].isin(basenames_pwn)
+        koppeltabel_header_other
+    ].isin(basenames_other)
     dfk = dfk[dfk_mask]
 
     logger.info("Combining layer models")
@@ -253,9 +244,9 @@ def combine_two_layer_models(
         dfk["Regis_split_index"], sep="_"
     )
     dfk["Pwn_split_index"] = (
-        dfk.groupby(koppeltabel_header_pwn).cumcount() + 1
+        dfk.groupby(koppeltabel_header_other).cumcount() + 1
     ).astype(str)
-    dfk["Pwn_split"] = dfk[koppeltabel_header_pwn].str.cat(
+    dfk["Pwn_split"] = dfk[koppeltabel_header_other].str.cat(
         dfk["Pwn_split_index"], sep="_"
     )
 
@@ -294,38 +285,38 @@ def combine_two_layer_models(
     }
 
     # Count in how many layers the PWN layers need to be split if previously never combined
-    split_counts_pwn_def = (
-        dfk.groupby(koppeltabel_header_pwn, sort=False)[koppeltabel_header_pwn]
+    split_counts_other_def = (
+        dfk.groupby(koppeltabel_header_other, sort=False)[koppeltabel_header_other]
         .count()
         .to_dict()
     )
-    layer_names_pwn_new = np.concatenate(
+    layer_names_other_new = np.concatenate(
         [
             [f"{k}_{vi}" for vi in range(1, v)]
-            for k, v in split_counts_pwn_def.items()
+            for k, v in split_counts_other_def.items()
             if v > 1
         ]
     )
     # used for adjusting botm of split layers
-    layer_names_pwn_new_dict = {
+    layer_names_other_new_dict = {
         k: [f"{k}_{vi}" for vi in range(1, v)]
-        for k, v in split_counts_pwn_def.items()
+        for k, v in split_counts_other_def.items()
         if v > 1
     }
 
     # Split both layer models with evenly-split thickness
-    layer_model_pwn_split = layer_model_pwn.sel(
-        layer=np.concatenate([v * [k] for k, v in split_counts_pwn_def.items()])
+    layer_model_other_split = layer_model_other.sel(
+        layer=np.concatenate([v * [k] for k, v in split_counts_other_def.items()])
     )
-    layer_model_pwn_split = layer_model_pwn_split.assign_coords(
+    layer_model_other_split = layer_model_other_split.assign_coords(
         layer=dfk["Regis_split"]
     )
     # Set botm of new layers to nan
-    mask = dfk["Regis_split"][dfk["Pwn_split"].isin(layer_names_pwn_new)].values
-    layer_model_pwn_split["botm"].loc[{"layer": mask}] = np.nan
+    mask = dfk["Regis_split"][dfk["Pwn_split"].isin(layer_names_other_new)].values
+    layer_model_other_split["botm"].loc[{"layer": mask}] = np.nan
 
-    # layer_model_pwn_split where True, layer_model_top_split where False
-    valid_pwn_layers = layer_model_pwn_split["botm"].notnull()
+    # layer_model_other_split where True, layer_model_top_split where False
+    valid_other_layers = layer_model_other_split["botm"].notnull()
 
     if layer_model_regis.layer.str.contains("_").any():
         # TODO: if previously combined layer_model needs to be split for a second time
@@ -337,9 +328,9 @@ def combine_two_layer_models(
         ), "Previously combined REGIS layers should be split in the same number of layers as before."
         layer_model_top_split = layer_model_tophalf
 
-        # # fill missing values in layer_model_pwn_split with layer_model_top_split
+        # # fill missing values in layer_model_other_split with layer_model_top_split
         # # After this step
-        # layer_model_pwn_split = layer_model_pwn_split.combine_first(
+        # layer_model_other_split = layer_model_other_split.combine_first(
         #     layer_model_top_split
         # )
     else:
@@ -354,7 +345,7 @@ def combine_two_layer_models(
 
     # extrapolate thickness of split layers
     thick_regis_top_split = nlmod.dims.layers.calculate_thickness(layer_model_top_split)
-    thick_pwn_split = nlmod.dims.layers.calculate_thickness(layer_model_pwn_split)
+    thick_other_split = nlmod.dims.layers.calculate_thickness(layer_model_other_split)
 
     # best estimate thickness of unsplit regis layers
     elev_regis = xr.concat(
@@ -367,15 +358,15 @@ def combine_two_layer_models(
     top_regis = elev_regis.isel(layer=slice(-1)).assign_coords(
         layer=layer_model_regis.layer.values
     )
-    elev_pwn = xr.concat(
+    elev_other = xr.concat(
         (
-            layer_model_pwn["top"].expand_dims(layer=["mv"]),
-            layer_model_pwn["botm"],
+            layer_model_other["top"].expand_dims(layer=["mv"]),
+            layer_model_other["botm"],
         ),
         dim="layer",
     )
-    top_pwn = elev_pwn.isel(layer=slice(-1)).assign_coords(
-        layer=layer_model_pwn.layer.values
+    top_other = elev_other.isel(layer=slice(-1)).assign_coords(
+        layer=layer_model_other.layer.values
     )
 
     """
@@ -384,7 +375,7 @@ def combine_two_layer_models(
 
     In a previous step, extra layers were added to layer_model_top_split so that one REGIS layer
     can connect to multiple PWN layers. The botm is already at the correct elevation for where 
-    the PWN layers are present (layer_model_pwn_split). The botm's of those layers is here set
+    the PWN layers are present (layer_model_other_split). The botm's of those layers is here set
     to the is now adjusted so that the thickness
 
     The total_thickness_layers is the sum of the thickness of the PWN layers that are connected
@@ -392,8 +383,8 @@ def combine_two_layer_models(
     total thickness of the REGIS layers is used. The thickness of the PWN layers is extrapolated 
     into the areas of the REGIS layers.
     
-    The thick_ratio_pwn is the ratio of the thickness of the PWN layers with respect to total thickness
-    that is extrapolated into the REGIS layer. The thick_ratio_pwn is used to calculate the elevations 
+    The thick_ratio_other is the ratio of the thickness of the PWN layers with respect to total thickness
+    that is extrapolated into the REGIS layer. The thick_ratio_other is used to calculate the elevations 
     of the botm of the newly split REGIS layers.
     """
 
@@ -409,14 +400,14 @@ def combine_two_layer_models(
             continue
 
         layers = group["Regis_split"].values
-        layers_pwn = dfk["ASSUMPTION1"][dfk["Regis_split"].isin(layers)].values
+        layers_other = dfk["ASSUMPTION1"][dfk["Regis_split"].isin(layers)].values
         new_layers = layer_names_regis_new_dict[name]
 
         if all(i in layer_model_regis.layer.values for i in new_layers):
             # layer_model_regis is previously combined and already split
             logger.info(
                 f"Previously combined REGIS layers: {name} are already split. "
-                "The botm's for these layers are only adjusted where non-nan pwn "
+                "The botm's for these layers are only adjusted where non-nan other "
                 "data is provided and in the transition zone."
             )
             continue
@@ -432,11 +423,11 @@ def combine_two_layer_models(
 
         # Top of combined layers
         top_total = xr.where(
-            top_pwn.sel(layer=layers_pwn[0]).notnull(),
-            top_pwn.sel(layer=layers_pwn[0]),
+            top_other.sel(layer=layers_other[0]).notnull(),
+            top_other.sel(layer=layers_other[0]),
             xr.concat(
                 (
-                    top_pwn.sel(layer=layers_pwn).max(dim="layer"),
+                    top_other.sel(layer=layers_other).max(dim="layer"),
                     top_regis.sel(layer=name),
                 ),
                 dim="max",
@@ -444,11 +435,11 @@ def combine_two_layer_models(
         )
 
         botm_total = xr.where(
-            layer_model_pwn["botm"].sel(layer=layers_pwn[-1]).notnull(),
-            layer_model_pwn["botm"].sel(layer=layers_pwn[-1]),
+            layer_model_other["botm"].sel(layer=layers_other[-1]).notnull(),
+            layer_model_other["botm"].sel(layer=layers_other[-1]),
             xr.concat(
                 (
-                    layer_model_pwn["botm"].sel(layer=layers_pwn).min(dim="layer"),
+                    layer_model_other["botm"].sel(layer=layers_other).min(dim="layer"),
                     layer_model_regis["botm"].sel(layer=name),
                 ),
                 dim="min",
@@ -459,34 +450,34 @@ def combine_two_layer_models(
             total_thickness_layers >= 0.0
         ).all(), "Total thickness of layers should be positive"
 
-        # thick ratios of pwn layers that need to be extrapolated into the areas of the regis layers
-        thick_ratio_pwn = xr.where(
+        # thick ratios of other layers that need to be extrapolated into the areas of the regis layers
+        thick_ratio_other = xr.where(
             total_thickness_layers != 0.0,
-            thick_pwn_split.sel(layer=layers) / total_thickness_layers,
+            thick_other_split.sel(layer=layers) / total_thickness_layers,
             0.0,
         )
 
         for layer in new_layers:
-            mask = thick_ratio_pwn.sel(layer=layer).notnull()  # locate valid values
+            mask = thick_ratio_other.sel(layer=layer).notnull()  # locate valid values
 
             if mask.sum() == 0:
                 logger.info(
-                    f"Insufficient data in layer_model_pwn to extrapolate {layer} thickness into "
+                    f"Insufficient data in layer_model_other to extrapolate {layer} thickness into "
                     f"layer {name}. Splitting layers evenly."
                 )
                 continue
 
             griddata_points = list(
                 zip(
-                    thick_ratio_pwn.coords["x"].sel(icell2d=mask).values,
-                    thick_ratio_pwn.coords["y"].sel(icell2d=mask).values,
+                    thick_ratio_other.coords["x"].sel(icell2d=mask).values,
+                    thick_ratio_other.coords["y"].sel(icell2d=mask).values,
                 )
             )
-            gridpoint_values = thick_ratio_pwn.sel(layer=layer, icell2d=mask).values
+            gridpoint_values = thick_ratio_other.sel(layer=layer, icell2d=mask).values
             qpoints = list(
                 zip(
-                    thick_ratio_pwn.coords["x"].sel(icell2d=~mask).values,
-                    thick_ratio_pwn.coords["y"].sel(icell2d=~mask).values,
+                    thick_ratio_other.coords["x"].sel(icell2d=~mask).values,
+                    thick_ratio_other.coords["y"].sel(icell2d=~mask).values,
                 )
             )
             qvalues = griddata(
@@ -496,15 +487,15 @@ def combine_two_layer_models(
                 method="nearest",
             )
 
-            thick_ratio_pwn.loc[{"layer": layer, "icell2d": ~mask}] = qvalues
+            thick_ratio_other.loc[{"layer": layer, "icell2d": ~mask}] = qvalues
 
         # evenly fill up missing thick_ratio values. Same for all layers.
         fillna = (
-            1 - thick_ratio_pwn.sum(dim="layer", skipna=True)
-        ) / thick_ratio_pwn.isnull().sum(dim="layer", skipna=True)
-        thick_ratio_pwn = thick_ratio_pwn.fillna(fillna)
+            1 - thick_ratio_other.sum(dim="layer", skipna=True)
+        ) / thick_ratio_other.isnull().sum(dim="layer", skipna=True)
+        thick_ratio_other = thick_ratio_other.fillna(fillna)
 
-        botm_split = top_total - (thick_ratio_pwn * total_thickness_layers).cumsum(
+        botm_split = top_total - (thick_ratio_other * total_thickness_layers).cumsum(
             dim="layer", skipna=False
         )
         botm_regis.loc[{"layer": layers}] = botm_split
@@ -513,7 +504,7 @@ def combine_two_layer_models(
     Connecting one PWN layer to multiple REGIS layers
     -------------------------------------------------
 
-    In a previous step, extra layers were added to layer_model_pwn_split so that one PWN layer
+    In a previous step, extra layers were added to layer_model_other_split so that one PWN layer
     can connect to multiple REGIS layers. Outside of the PWN layers, the botm of the multiple 
     REGIS layers is already at the correct elevation (layer_model_top_split). Inside of the PWN
     layers only the lower botm and the upper top are at the correct elevation. The elevation 
@@ -525,15 +516,15 @@ def combine_two_layer_models(
     layers is smooth.
     """
     logger.info("Adjusting the botm of the newly split PWN layers")
-    del layers_pwn, layers
-    botm_pwn = layer_model_pwn_split["botm"].copy()
-    for name, group in dfk.groupby(koppeltabel_header_pwn):
-        if name not in layer_names_pwn_new_dict:
+    del layers_other, layers
+    botm_other = layer_model_other_split["botm"].copy()
+    for name, group in dfk.groupby(koppeltabel_header_other):
+        if name not in layer_names_other_new_dict:
             # This PWN layer is not split
             continue
 
         layers = group["Regis_split"].values
-        new_layers = layer_names_pwn_new_dict[name]
+        new_layers = layer_names_other_new_dict[name]
 
         if any("_" in i for i in layer_model_regis.layer.values):
             layers_regis = group["Regis_split"].values
@@ -545,7 +536,7 @@ def combine_two_layer_models(
             f"{layers[-1]} already has the correct elevation"
         )
 
-        # thick ratios of regis layers that need to be extrapolated into the areas of the pwn layers
+        # thick ratios of regis layers that need to be extrapolated into the areas of the other layers
         total_thickness_layers_regis = thick_regis_top_split.sel(layer=layers).sum(
             dim="layer", skipna=False
         )
@@ -556,16 +547,16 @@ def combine_two_layer_models(
         )
 
         top_total = xr.where(
-            top_pwn.sel(layer=name).notnull(),
-            top_pwn.sel(layer=name),
+            top_other.sel(layer=name).notnull(),
+            top_other.sel(layer=name),
             top_regis.sel(layer=layers_regis[0]),
         )
-        _top = top_pwn.sel(layer=slice(name)).min(dim="layer")
+        _top = top_other.sel(layer=slice(name)).min(dim="layer")
         top_total = top_total.where(
             ~((top_total > _top) & _top.notnull()),
             _top
         )
-        _top = top_pwn.sel(layer=slice(name, None)).max(dim="layer")
+        _top = top_other.sel(layer=slice(name, None)).max(dim="layer")
         top_total = top_total.where(
             ~((top_total < _top) & _top.notnull()),
             _top
@@ -573,8 +564,8 @@ def combine_two_layer_models(
 
         # Botm of combined layers
         botm_total = xr.where(
-            layer_model_pwn["botm"].sel(layer=name).notnull(),
-            layer_model_pwn["botm"].sel(layer=name),
+            layer_model_other["botm"].sel(layer=name).notnull(),
+            layer_model_other["botm"].sel(layer=name),
             layer_model_regis["botm"].sel(layer=layers_regis[-1]),
         )
         botm_total = botm_total.where(
@@ -589,7 +580,7 @@ def combine_two_layer_models(
         botm_split = top_total - (thick_ratio_regis * total_thickness_layers).cumsum(
             dim="layer", skipna=False
         )
-        botm_pwn.loc[{"layer": layers}] = botm_split
+        botm_other.loc[{"layer": layers}] = botm_split
 
     """Merge the two layer models"""
     logger.info("Merging the two layer models")
@@ -597,18 +588,18 @@ def combine_two_layer_models(
     layer_model_top = xr.Dataset(
         {
             "botm": xr.where(
-                valid_pwn_layers,
-                layer_model_pwn_split["botm"],
+                valid_other_layers,
+                layer_model_other_split["botm"],
                 layer_model_top_split["botm"],
             ),
             "kh": xr.where(
-                valid_pwn_layers,
-                layer_model_pwn_split["kh"],
+                valid_other_layers,
+                layer_model_other_split["kh"],
                 layer_model_top_split["kh"],
             ),
             "kv": xr.where(
-                valid_pwn_layers,
-                layer_model_pwn_split["kv"],
+                valid_other_layers,
+                layer_model_other_split["kv"],
                 layer_model_top_split["kv"],
             ),
         },
@@ -625,25 +616,25 @@ def combine_two_layer_models(
         {"layer": isadjusted_botm_regis}
     ]
 
-    isadjusted_botm_pwn = (
-        dfk["ASSUMPTION1"].isin(list(layer_names_pwn_new_dict.keys())).values
+    isadjusted_botm_other = (
+        dfk["ASSUMPTION1"].isin(list(layer_names_other_new_dict.keys())).values
     )
-    layer_model_top["botm"].loc[{"layer": isadjusted_botm_pwn}] = botm_pwn.loc[
-        {"layer": isadjusted_botm_pwn}
+    layer_model_top["botm"].loc[{"layer": isadjusted_botm_other}] = botm_other.loc[
+        {"layer": isadjusted_botm_other}
     ]
 
     # introduce transition of layers
-    if transition_model_pwn is not None:
+    if transition_model_other is not None:
         logger.info(
             "Linear interpolation of transition region inbetween the two layer models"
         )
-        transition_model_pwn_split = transition_model_pwn.sel(
-            layer=dfk[koppeltabel_header_pwn].values
+        transition_model_other_split = transition_model_other.sel(
+            layer=dfk[koppeltabel_header_other].values
         ).assign_coords(layer=dfk["Regis_split"].values)
 
         for key in ["botm", "kh", "kv"]:
             var = layer_model_top[key]
-            trans = transition_model_pwn_split[key]
+            trans = transition_model_other_split[key]
 
             for layer in var.layer.values:
                 vari = var.sel(layer=layer)
@@ -682,12 +673,12 @@ def combine_two_layer_models(
 
     # categorize layers
     # 1: regis
-    # 2: pwn
+    # 2: other
     # 3: transition
-    cat_top = xr.where(valid_pwn_layers, 2, 1)
+    cat_top = xr.where(valid_other_layers, 2, 1)
 
-    if transition_model_pwn is not None:
-        cat_top = xr.where(transition_model_pwn_split[["botm", "kh", "kv"]], 3, cat_top)
+    if transition_model_other is not None:
+        cat_top = xr.where(transition_model_other_split[["botm", "kh", "kv"]], 3, cat_top)
 
     cat_botm = xr.ones_like(layer_model_bothalf[["botm", "kh", "kv"]], dtype=int)
     cat = xr.concat((cat_top, cat_botm), dim="layer")
@@ -695,14 +686,14 @@ def combine_two_layer_models(
     return layer_model_out, cat
 
 
-def get_pwn_layer_model(
+def get_mensink_layer_model(
     ds,
     datadir_mensink=None,
     datadir_bergen=None,
     length_transition=100.0,
     cachedir=None,
 ):
-    pwn = read_pwn_data2(
+    mensink = read_pwn_data2(
         ds,
         datadir_mensink=datadir_mensink,
         datadir_bergen=datadir_bergen,
@@ -726,26 +717,26 @@ def get_pwn_layer_model(
         "S32": 13,
     }
 
-    layer_model_pwn_attrs = {
+    layer_model_mensink_attrs = {
         "extent": ds.attrs["extent"],
         "gridtype": ds.attrs["gridtype"],
     }
-    layer_model_pwn = xr.Dataset(
+    layer_model_mensink = xr.Dataset(
         {
-            "top": pwn["top"],
-            "botm": get_botm(pwn),
-            "kh": get_kh(pwn),
-            "kv": get_kv(pwn),
+            "top": mensink["top"],
+            "botm": get_mensink_botm(mensink),
+            "kh": get_mensink_kh(mensink),
+            "kv": get_mensink_kv(mensink),
         },
         coords={"layer": list(translate_triwaco_names_to_index.keys())},
-        attrs=layer_model_pwn_attrs,
+        attrs=layer_model_mensink_attrs,
     )
-    transition_model_pwn = xr.Dataset(
+    transition_model_mensink = xr.Dataset(
         {
-            "top": pwn["top_transition"],
-            "botm": get_botm(pwn, mask=False, transition=True),
-            "kh": get_kh(pwn, mask=False, transition=True),
-            "kv": get_kv(pwn, mask=False, transition=True),
+            "top": mensink["top_transition"],
+            "botm": get_mensink_botm(mensink, mask=False, transition=True),
+            "kh": get_mensink_kh(mensink, mask=False, transition=True),
+            "kv": get_mensink_kv(mensink, mask=False, transition=True),
         },
         coords={"layer": list(translate_triwaco_names_to_index.keys())},
     )
@@ -765,27 +756,27 @@ def get_pwn_layer_model(
     }
     layer_model_bergen = xr.Dataset(
         {
-            "top": pwn["top"],
-            "kh": get_bergen_kh(pwn),
-            "botm": get_bergen_botm(pwn),
-            "kv": get_bergen_kv(pwn),
+            "top": mensink["top"],
+            "kh": get_bergen_kh(mensink),
+            "botm": get_bergen_botm(mensink),
+            "kv": get_bergen_kv(mensink),
         },
         coords={"layer": list(translate_triwaco_bergen_names_to_index.keys())},
-        attrs=layer_model_pwn_attrs,
+        attrs=layer_model_mensink_attrs,
     )
     transition_model_bergen = xr.Dataset(
         {
-            "top": pwn["top_transition"],
-            "botm": get_bergen_botm(pwn, mask=False, transition=True),
-            "kh": get_bergen_kh(pwn, mask=False, transition=True),
-            "kv": get_bergen_kv(pwn, mask=False, transition=True),
+            "top": mensink["top_transition"],
+            "botm": get_bergen_botm(mensink, mask=False, transition=True),
+            "kh": get_bergen_kh(mensink, mask=False, transition=True),
+            "kv": get_bergen_kv(mensink, mask=False, transition=True),
         },
         coords={"layer": list(translate_triwaco_bergen_names_to_index.keys())},
     )
 
     return (
-        layer_model_pwn,
-        transition_model_pwn,
+        layer_model_mensink,
+        transition_model_mensink,
         layer_model_bergen,
         transition_model_bergen,
     )
@@ -866,7 +857,7 @@ def get_bergen_thickness(data, mask=False, transition=False, fix_min_layer_thick
     if mask:
         return ~np.isnan(out)
     elif transition:
-        mask = get_thickness(data, mask=True, transition=False)
+        mask = get_bergen_thickness(data, mask=True, transition=False)
         transition = np.isnan(out)
         check = mask.astype(int) + transition.astype(int)
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
@@ -958,10 +949,10 @@ def get_bergen_kv(data, mask=False, anisotropy=5.0, transition=False):
 
     Example:
         # Calculate hydraulic conductivity values without applying a mask
-        kv_values = get_kv(data)
+        kv_values = get_bergen_kv(data)
 
         # Calculate hydraulic conductivity values with a mask applied
-        kv_values_masked = get_kv(data, mask=True)
+        kv_values_masked = get_bergen_kv(data, mask=True)
 
         Note the f_anisotropy vs anisotropy
         # kv[0] = kh[0] * f_anisotropy
@@ -1059,7 +1050,7 @@ def get_bergen_botm(data, mask=False, transition=False, fix_min_layer_thickness=
         return out
 
 
-def get_thickness(data, mask=False, transition=False, fix_min_layer_thickness=True):
+def get_mensink_thickness(data, mask=False, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the thickness of layers in a given dataset.
 
@@ -1095,7 +1086,7 @@ def get_thickness(data, mask=False, transition=False, fix_min_layer_thickness=Tr
         If mask is False, returns the thickness values as a DataArray or ndarray.
 
     """
-    botm = get_botm(data, mask=mask, transition=transition, fix_min_layer_thickness=fix_min_layer_thickness)
+    botm = get_mensink_botm(data, mask=mask, transition=transition, fix_min_layer_thickness=fix_min_layer_thickness)
 
     if mask:
         _a = data[[var for var in data.variables if var.endswith("_mask")]]
@@ -1135,7 +1126,7 @@ def get_thickness(data, mask=False, transition=False, fix_min_layer_thickness=Tr
     if mask:
         return ~np.isnan(out)
     elif transition:
-        mask = get_thickness(data, mask=True, transition=False)
+        mask = get_mensink_thickness(data, mask=True, transition=False)
         transition = np.isnan(out)
         check = mask.astype(int) + transition.astype(int)
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
@@ -1148,7 +1139,7 @@ def get_thickness(data, mask=False, transition=False, fix_min_layer_thickness=Tr
         return out
 
 
-def get_kh(data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
+def get_mensink_kh(data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the hydraulic conductivity (kh) based on the given data.
 
@@ -1170,7 +1161,7 @@ def get_kh(data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thi
 
     """
 
-    thickness = get_thickness(data, mask=mask, transition=transition, fix_min_layer_thickness=fix_min_layer_thickness)
+    thickness = get_mensink_thickness(data, mask=mask, transition=transition, fix_min_layer_thickness=fix_min_layer_thickness)
     assert not (thickness < 0.0).any(), "Negative thickness values are not allowed."
 
     if mask:
@@ -1243,7 +1234,7 @@ def get_kh(data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thi
     if mask:
         return ~np.isnan(out)
     elif transition:
-        mask = get_kh(data, mask=True, transition=False)
+        mask = get_mensink_kh(data, mask=True, transition=False)
         transition = np.isnan(out)
         check = mask.astype(int) + transition.astype(int)
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
@@ -1252,7 +1243,7 @@ def get_kh(data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thi
         return out
 
 
-def get_kv(data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
+def get_mensink_kv(data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the hydraulic conductivity (KV) for different aquifers and aquitards.
 
@@ -1268,16 +1259,16 @@ def get_kv(data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thi
         - The function expects the input dataset to contain the following variables:
             - KW11, KW12, KW13, KW21, KW22, KW31, KW32: Hydraulic conductivity values for aquifers.
             - C11AREA, C12AREA, C13AREA, C21AREA, C22AREA, C31AREA, C32AREA: Areas of aquitards corresponding to each aquifer.
-        - The function also requires the `get_thickness` function to be defined and accessible.
+        - The function also requires the `get_mensink_thickness` function to be defined and accessible.
 
     Example:
         # Calculate hydraulic conductivity values without applying a mask
-        kv_values = get_kv(data)
+        kv_values = get_mensink_kv(data)
 
         # Calculate hydraulic conductivity values with a mask applied
-        kv_values_masked = get_kv(data, mask=True)
+        kv_values_masked = get_mensink_kv(data, mask=True)
     """
-    thickness = get_thickness(data, mask=mask, transition=transition, fix_min_layer_thickness=fix_min_layer_thickness)
+    thickness = get_mensink_thickness(data, mask=mask, transition=transition, fix_min_layer_thickness=fix_min_layer_thickness)
 
     if mask:
         _a = data[[var for var in data.variables if var.endswith("_mask")]]
@@ -1330,7 +1321,7 @@ def get_kv(data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thi
     if mask:
         return ~np.isnan(out)
     elif transition:
-        mask = get_kv(data, mask=True, transition=False)
+        mask = get_mensink_kv(data, mask=True, transition=False)
         transition = np.isnan(out)
         check = mask.astype(int) + transition.astype(int)
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
@@ -1339,7 +1330,7 @@ def get_kv(data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thi
         return out
 
 
-def get_botm(data, mask=False, transition=False, fix_min_layer_thickness=True):
+def get_mensink_botm(data, mask=False, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the bottom elevation of each layer in the model.
 
@@ -1397,7 +1388,7 @@ def get_botm(data, mask=False, transition=False, fix_min_layer_thickness=True):
     if mask:
         return ~np.isnan(out)
     elif transition:
-        mask = get_botm(data, mask=True, transition=False)
+        mask = get_mensink_botm(data, mask=True, transition=False)
         transition = np.isnan(out)
         check = mask.astype(int) + transition.astype(int)
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
