@@ -2,12 +2,115 @@ import logging
 
 import nlmod
 import numpy as np
+import pandas as pd
 import xarray as xr
 from scipy.interpolate import griddata
 
 from .io import read_pwn_data2
 
 logger = logging.getLogger(__name__)
+
+
+def get_pwn_layer_model(ds_regis, data_path_mensink, data_path_bergen, fname_koppeltabel, cachedir, length_transition=100.):
+    """
+    Merge PWN layer model with ds_regis.
+
+    The PWN layer model is merged with the REGISII layer model. The values of the PWN layer model are used where the layer_model_pwn is not nan.
+
+    The values of the REGISII layer model are used where the layer_model_pwn is nan and transition_model_pwn is False. The remaining values are where the transition_model_pwn is True. Those values are linearly interpolated from the REGISII layer model to the PWN layer model.
+
+    The following order should be maintained in you modelscript:
+    - Get REGIS ds using nlmod.read.regis.get_combined_layer_models() and nlmod.to_model_ds()
+    - Refine grid with surface water polygons and areas of interest with nlmod.grid.refine()
+    - Get AHN with nlmod.read.ahn.get_ahn4() and resample to model grid with nlmod.dims.resample.structured_da_to_ds()
+    - Get PWN layer model with nlmod.read.pwn.get_pwn_layer_model()
+
+    Parameters
+    ----------
+    ds_regis : xarray Dataset
+        The dataset to merge the PWN layer model with.
+    data_path_mensink : str
+        The path to the Mensink data directory.
+    data_path_bergen : str
+        The path to the Bergen data directory.
+    fname_koppeltabel : str
+        The filename of the koppeltabel (translation table) CSV file.
+    cachedir : str
+        The directory to cache the layer models.
+
+    Returns
+    -------
+    ds : xarray Dataset
+        The merged dataset.
+    """
+
+    layer_model_regis = ds_regis[["top", "botm", "kh", "kv"]]
+    layer_model_regis = layer_model_regis.sel(layer=layer_model_regis.layer != "mv")
+    layer_model_regis.attrs = {
+        "extent": ds_regis.attrs["extent"],
+        "gridtype": ds_regis.attrs["gridtype"],
+    }
+
+    # Get PWN layer models
+    (
+        layer_model_pwn,
+        transition_model_pwn,
+        layer_model_bergen,
+        transition_model_bergen,
+    ) = get_pwn_layer_model(
+        ds_regis,
+        datadir_mensink=data_path_mensink,
+        datadir_bergen=data_path_bergen,
+        length_transition=length_transition,
+        cachedir=cachedir,
+    )
+
+    # Read the koppeltabel CSV file
+    df_koppeltabel = pd.read_csv(fname_koppeltabel, skiprows=0)
+    df_koppeltabel = df_koppeltabel[~df_koppeltabel["ASSUMPTION1"].isna()]
+
+    # Combine PWN layer model with REGIS layer model
+    layer_model_pwn_regis, layer_model_pwn_regis_cat = combine_two_layer_models(
+        df_koppeltabel,
+        layer_model_regis,
+        layer_model_pwn,
+        transition_model_pwn,
+        koppeltabel_header_regis="Regis II v2.2",
+        koppeltabel_header_pwn="ASSUMPTION1",
+    )
+
+    # Combine PWN layer model with Bergen layer model and REGIS layer model
+    (
+        layer_model_pwn_bergen_regis,
+        layer_model_pwn_bergen_regis_cat,
+    ) = combine_two_layer_models(
+        df_koppeltabel,
+        layer_model_pwn_regis,
+        layer_model_bergen,
+        transition_model_pwn,
+        koppeltabel_header_regis="Regis II v2.2",
+        koppeltabel_header_pwn="ASSUMPTION1",
+    )
+
+    # Remove inactive layers and set kh and kv of non-existing cells to default values
+    layer_model_pwn_bergen_regis["kh"] = layer_model_pwn_bergen_regis.kh.where(
+        layer_model_pwn_bergen_regis.kh != 0.0, np.nan
+    )
+    layer_model_pwn_bergen_regis["kv"] = layer_model_pwn_bergen_regis.kv.where(
+        layer_model_pwn_bergen_regis.kv != 0.0, np.nan
+    )
+    layer_model_active = nlmod.layers.fill_nan_top_botm_kh_kv(
+        layer_model_pwn_bergen_regis,
+        anisotropy=5.0,
+        fill_value_kh=5.0,
+        fill_value_kv=1.0,
+        remove_nan_layers=True,
+    )
+
+    # Merge the layer model with the dataset using right join
+    ds = ds_regis.merge(layer_model_active, join="right")
+
+    return ds
 
 
 def combine_two_layer_models(
