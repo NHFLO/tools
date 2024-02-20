@@ -46,7 +46,11 @@ def read_pwn_data2(
     modelgrid = nlmod.dims.grid.modelgrid_from_ds(ds)
     ix = GridIntersect(modelgrid, method="vertex")
 
-    ds_out = xr.Dataset()
+    ds_out = xr.Dataset(
+        attrs={
+            "extent": ds.attrs["extent"],
+            "gridtype": ds.attrs["gridtype"],
+        })
 
     if datadir_bergen is not None:
         logger.info("Reading PWN data from Bergen")

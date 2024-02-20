@@ -52,44 +52,41 @@ def get_pwn_layer_model(ds_regis, data_path_mensink, data_path_bergen, fname_kop
     }
 
     # Get PWN layer models
-    (
-        layer_model_mensink,
-        transition_model_mensink,
-        layer_model_bergen,
-        transition_model_bergen,
-    ) = get_mensink_layer_model(
+    ds_pwn_data = read_pwn_data2(
         ds_regis,
         datadir_mensink=data_path_mensink,
         datadir_bergen=data_path_bergen,
         length_transition=length_transition,
         cachedir=cachedir,
     )
+    layer_model_mensink, transition_model_mensink = get_mensink_layer_model(ds_pwn_data=ds_pwn_data)
+    layer_model_bergen, transition_model_bergen = get_bergen_layer_model(ds_pwn_data=ds_pwn_data)
 
     # Read the koppeltabel CSV file
     df_koppeltabel = pd.read_csv(fname_koppeltabel, skiprows=0)
     df_koppeltabel = df_koppeltabel[~df_koppeltabel["ASSUMPTION1"].isna()]
 
     # Combine PWN layer model with REGIS layer model
-    layer_model_mensink_regis, layer_model_mensink_regis_cat = combine_two_layer_models(
+    layer_model_mensink_regis, _ = combine_two_layer_models(
         df_koppeltabel,
         layer_model_regis,
         layer_model_mensink,
         transition_model_mensink,
         koppeltabel_header_regis="Regis II v2.2",
-        koppeltabel_header_pwn="ASSUMPTION1",
+        koppeltabel_header_other="ASSUMPTION1",
     )
 
     # Combine PWN layer model with Bergen layer model and REGIS layer model
     (
         layer_model_mensink_bergen_regis,
-        layer_model_mensink_bergen_regis_cat,
+        _,
     ) = combine_two_layer_models(
         df_koppeltabel,
         layer_model_mensink_regis,
         layer_model_bergen,
         transition_model_bergen,
         koppeltabel_header_regis="Regis II v2.2",
-        koppeltabel_header_pwn="ASSUMPTION1",
+        koppeltabel_header_other="ASSUMPTION1",
     )
 
     # Remove inactive layers and set kh and kv of non-existing cells to default values
@@ -117,7 +114,7 @@ def combine_two_layer_models(
     df_koppeltabel,
     layer_model_regis,
     layer_model_other,
-    transition_model_other=None,
+    transition_model=None,
     koppeltabel_header_regis="Regis II v2.2",
     koppeltabel_header_other="ASSUMPTION1",
 ):
@@ -126,8 +123,8 @@ def combine_two_layer_models(
 
     The values of the PWN layer model are used where the layer_model_other is not nan.
     The values of the REGISII layer model are used where the layer_model_other is nan
-    and transition_model_other is False. The remaining values are where the
-    transition_model_other is True. Those values are linearly interpolated from the
+    and transition_model is False. The remaining values are where the
+    transition_model is True. Those values are linearly interpolated from the
     REGISII layer model to the PWN layer model.
 
     `layer_model_regis` and `layer_model_other` should have the same grid.
@@ -155,7 +152,7 @@ def combine_two_layer_models(
         Dataset containing the layer model of PWN. It should have nan values
         where the layer model is not defined. It should contain the variables
         'kh', 'kv', 'botm', and 'top'.
-    transition_model_other : xarray Dataset, optional
+    transition_model : xarray Dataset, optional
         Dataset containing the transition model of PWN. It should contain
         the variables 'kh', 'kv', 'botm'. The default is None.
         It should be True where the transition between layer_model_regis and layer_model_other
@@ -208,16 +205,16 @@ def combine_two_layer_models(
     assert all(
         var in layer_model_other.variables for var in ["kh", "kv", "botm", "top"]
     ), "Variable 'kh', 'kv', 'botm', or 'top' is missing in layer_model_other"
-    if transition_model_other is not None:
+    if transition_model is not None:
         assert all(
-            var in transition_model_other.variables for var in ["kh", "kv", "botm"]
-        ), "Variable 'kh', 'kv', or 'botm' is missing in transition_model_other"
+            var in transition_model.variables for var in ["kh", "kv", "botm"]
+        ), "Variable 'kh', 'kv', or 'botm' is missing in transition_model"
         assert all(
             [
                 np.issubdtype(dtype, bool)
-                for dtype in transition_model_other.dtypes.values()
+                for dtype in transition_model.dtypes.values()
             ]
-        ), "Variable 'kh', 'kv', and 'botm' in transition_model_other should be boolean"
+        ), "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
 
     assert (
         not dfk[koppeltabel_header_regis].str.contains("_").any()
@@ -624,17 +621,17 @@ def combine_two_layer_models(
     ]
 
     # introduce transition of layers
-    if transition_model_other is not None:
+    if transition_model is not None:
         logger.info(
             "Linear interpolation of transition region inbetween the two layer models"
         )
-        transition_model_other_split = transition_model_other.sel(
+        transition_model_split = transition_model.sel(
             layer=dfk[koppeltabel_header_other].values
         ).assign_coords(layer=dfk["Regis_split"].values)
 
         for key in ["botm", "kh", "kv"]:
             var = layer_model_top[key]
-            trans = transition_model_other_split[key]
+            trans = transition_model_split[key]
 
             for layer in var.layer.values:
                 vari = var.sel(layer=layer)
@@ -677,8 +674,8 @@ def combine_two_layer_models(
     # 3: transition
     cat_top = xr.where(valid_other_layers, 2, 1)
 
-    if transition_model_other is not None:
-        cat_top = xr.where(transition_model_other_split[["botm", "kh", "kv"]], 3, cat_top)
+    if transition_model is not None:
+        cat_top = xr.where(transition_model_split[["botm", "kh", "kv"]], 3, cat_top)
 
     cat_botm = xr.ones_like(layer_model_bothalf[["botm", "kh", "kv"]], dtype=int)
     cat = xr.concat((cat_top, cat_botm), dim="layer")
@@ -686,20 +683,8 @@ def combine_two_layer_models(
     return layer_model_out, cat
 
 
-def get_mensink_layer_model(
-    ds,
-    datadir_mensink=None,
-    datadir_bergen=None,
-    length_transition=100.0,
-    cachedir=None,
-):
-    mensink = read_pwn_data2(
-        ds,
-        datadir_mensink=datadir_mensink,
-        datadir_bergen=datadir_bergen,
-        length_transition=length_transition,
-        cachedir=cachedir,
-    )
+def get_mensink_layer_model(ds_pwn_data):
+
     translate_triwaco_names_to_index = {
         "W11": 0,
         "S11": 1,
@@ -716,32 +701,35 @@ def get_mensink_layer_model(
         "W32": 12,
         "S32": 13,
     }
-
-    layer_model_mensink_attrs = {
-        "extent": ds.attrs["extent"],
-        "gridtype": ds.attrs["gridtype"],
-    }
     layer_model_mensink = xr.Dataset(
         {
-            "top": mensink["top"],
-            "botm": get_mensink_botm(mensink),
-            "kh": get_mensink_kh(mensink),
-            "kv": get_mensink_kv(mensink),
+            "top": ds_pwn_data["top"],
+            "botm": get_mensink_botm(ds_pwn_data),
+            "kh": get_mensink_kh(ds_pwn_data),
+            "kv": get_mensink_kv(ds_pwn_data),
         },
         coords={"layer": list(translate_triwaco_names_to_index.keys())},
-        attrs=layer_model_mensink_attrs,
+        attrs={
+            "extent": ds_pwn_data.attrs["extent"],
+            "gridtype": ds_pwn_data.attrs["gridtype"],
+        },
     )
     transition_model_mensink = xr.Dataset(
         {
-            "top": mensink["top_transition"],
-            "botm": get_mensink_botm(mensink, mask=False, transition=True),
-            "kh": get_mensink_kh(mensink, mask=False, transition=True),
-            "kv": get_mensink_kv(mensink, mask=False, transition=True),
+            "top": ds_pwn_data["top_transition"],
+            "botm": get_mensink_botm(ds_pwn_data, mask=False, transition=True),
+            "kh": get_mensink_kh(ds_pwn_data, mask=False, transition=True),
+            "kv": get_mensink_kv(ds_pwn_data, mask=False, transition=True),
         },
         coords={"layer": list(translate_triwaco_names_to_index.keys())},
     )
+    return (
+        layer_model_mensink,
+        transition_model_mensink,
+    )
 
-    # Bergen
+
+def get_bergen_layer_model(ds_pwn_data):
     translate_triwaco_bergen_names_to_index = {
         "W11": 0,
         "S11": 1,
@@ -756,27 +744,28 @@ def get_mensink_layer_model(
     }
     layer_model_bergen = xr.Dataset(
         {
-            "top": mensink["top"],
-            "kh": get_bergen_kh(mensink),
-            "botm": get_bergen_botm(mensink),
-            "kv": get_bergen_kv(mensink),
+            "top": ds_pwn_data["top"],
+            "kh": get_bergen_kh(ds_pwn_data),
+            "botm": get_bergen_botm(ds_pwn_data),
+            "kv": get_bergen_kv(ds_pwn_data),
         },
         coords={"layer": list(translate_triwaco_bergen_names_to_index.keys())},
-        attrs=layer_model_mensink_attrs,
+        attrs={
+        "extent": ds_pwn_data.attrs["extent"],
+        "gridtype": ds_pwn_data.attrs["gridtype"],
+    },
     )
     transition_model_bergen = xr.Dataset(
         {
-            "top": mensink["top_transition"],
-            "botm": get_bergen_botm(mensink, mask=False, transition=True),
-            "kh": get_bergen_kh(mensink, mask=False, transition=True),
-            "kv": get_bergen_kv(mensink, mask=False, transition=True),
+            "top": ds_pwn_data["top_transition"],
+            "botm": get_bergen_botm(ds_pwn_data, mask=False, transition=True),
+            "kh": get_bergen_kh(ds_pwn_data, mask=False, transition=True),
+            "kv": get_bergen_kv(ds_pwn_data, mask=False, transition=True),
         },
         coords={"layer": list(translate_triwaco_bergen_names_to_index.keys())},
     )
 
     return (
-        layer_model_mensink,
-        transition_model_mensink,
         layer_model_bergen,
         transition_model_bergen,
     )
@@ -967,7 +956,11 @@ def get_bergen_kv(data, mask=False, anisotropy=5.0, transition=False):
     """
     kh = get_bergen_kh(data, mask=mask, anisotropy=anisotropy, transition=transition)
 
-    out = kh / anisotropy
+    if not mask and not transition:
+        # bool divided by float is float
+        out = kh / anisotropy
+    else:
+        out = kh
 
     return out
 
