@@ -12,6 +12,8 @@ from shapely import Polygon, MultiPolygon, make_valid
 
 logger = logging.getLogger(__name__)
 
+# TODO: mask and transition in read_kv_area
+
 
 def read_pwn_data2(
     ds,
