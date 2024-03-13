@@ -8,7 +8,9 @@ import pykrige
 import xarray as xr
 from flopy.utils.gridintersect import GridIntersect
 from nlmod import cache
-from shapely import Polygon, MultiPolygon, make_valid
+from shapely import MultiPolygon
+from shapely import Polygon
+from shapely import make_valid
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +54,8 @@ def read_pwn_data2(
         attrs={
             "extent": ds.attrs["extent"],
             "gridtype": ds.attrs["gridtype"],
-        })
+        }
+    )
 
     if datadir_bergen is not None:
         logger.info("Reading PWN data from Bergen")
@@ -183,7 +186,10 @@ def _read_bergen_basis_aquitards(
         # Krieging
         if pointnames[name] is not None:
             # Ignore point indices to suppress warning and is not used here.
-            gdf_pts = gpd.read_file(os.path.join(fd, f"{pointnames[name]}.shp"), ignore_fields=[pointnames[name].upper()])
+            gdf_pts = gpd.read_file(
+                os.path.join(fd, f"{pointnames[name]}.shp"),
+                ignore_fields=[pointnames[name].upper()],
+            )
             ok = pykrige.ok.OrdinaryKriging(
                 gdf_pts.geometry.x.values,
                 gdf_pts.geometry.y.values,
@@ -192,11 +198,17 @@ def _read_bergen_basis_aquitards(
                 verbose=False,
                 enable_plotting=False,
             )
-            _multipolygon = MultiPolygon(gdf_krieg.geometry.explode("geometry", index_parts=True).values)  # returns Polygon or MultiPolygon
-            _multipolygonl = [g for g in make_valid(_multipolygon).geoms if isinstance(g, MultiPolygon) or isinstance(g, Polygon)]
+            _multipolygon = MultiPolygon(
+                gdf_krieg.geometry.explode("geometry", index_parts=True).values
+            )  # returns Polygon or MultiPolygon
+            _multipolygonl = [
+                g
+                for g in make_valid(_multipolygon).geoms
+                if isinstance(g, MultiPolygon) or isinstance(g, Polygon)
+            ]
             assert len(_multipolygonl) == 1, "MultiPolygons in multipolygon"
             multipolygon = _multipolygonl[0]
-            
+
             r = ix.intersect(
                 multipolygon,
                 contains_centroid=False,
@@ -346,7 +358,10 @@ def _read_bergen_thickness_aquitards(
         # Krieging
         if pointnames[name] is not None:
             # Ignore point indices to suppress warning and is not used here.
-            gdf_pts = gpd.read_file(os.path.join(fd, f"{pointnames[name]}.shp"), ignore_fields=[pointnames[name].upper()])
+            gdf_pts = gpd.read_file(
+                os.path.join(fd, f"{pointnames[name]}.shp"),
+                ignore_fields=[pointnames[name].upper()],
+            )
             ok = pykrige.ok.OrdinaryKriging(
                 gdf_pts.geometry.x.values,
                 gdf_pts.geometry.y.values,
@@ -355,8 +370,14 @@ def _read_bergen_thickness_aquitards(
                 verbose=False,
                 enable_plotting=False,
             )
-            _multipolygon = MultiPolygon(gdf_krieg.geometry.explode("geometry", index_parts=True).values)  # returns Polygon or MultiPolygon
-            _multipolygonl = [g for g in make_valid(_multipolygon).geoms if isinstance(g, MultiPolygon) or isinstance(g, Polygon)]
+            _multipolygon = MultiPolygon(
+                gdf_krieg.geometry.explode("geometry", index_parts=True).values
+            )  # returns Polygon or MultiPolygon
+            _multipolygonl = [
+                g
+                for g in make_valid(_multipolygon).geoms
+                if isinstance(g, MultiPolygon) or isinstance(g, Polygon)
+            ]
             assert len(_multipolygonl) == 1, "MultiPolygons in multipolygon"
             multipolygon = _multipolygonl[0]
 
@@ -806,9 +827,13 @@ def make_valid_polygons(gdf):
 
     gdf = gdf.copy()
     gdf.geometry = gdf.make_valid()
-    
+
     gdf_gc = gdf.loc[gdf.geometry.type == "GeometryCollection"].copy()
-    gdf_gc_converted = gdf_gc.geometry.apply(lambda x: shapely.geometry.MultiPolygon([gg for gg in x.geoms if isinstance(gg, shapely.geometry.Polygon)]))
+    gdf_gc_converted = gdf_gc.geometry.apply(
+        lambda x: shapely.geometry.MultiPolygon(
+            [gg for gg in x.geoms if isinstance(gg, shapely.geometry.Polygon)]
+        )
+    )
     gdf.loc[gdf_gc.index, "geometry"] = gdf_gc_converted
-    
+
     return gdf
