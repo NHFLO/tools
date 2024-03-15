@@ -9,7 +9,7 @@ import numpy as np
 def get_oppervlakte_pwn_shapes(data_path_panden):
     """Get oppervlakte shapes for PWN area.
 
-    Serves as input to 
+    Serves as input to
 
     Parameters
     ----------

@@ -54,9 +54,9 @@ def get_nhi_chloride_concentration(ds, data_path_nhi_chloride, interp_method="ne
         )
     ).T
 
-    qi = scipy.interpolate.interpn(points, values, xi, method=interp_method, bounds_error=False).reshape(
-        zci.shape
-    )
+    qi = scipy.interpolate.interpn(
+        points, values, xi, method=interp_method, bounds_error=False
+    ).reshape(zci.shape)
     attrs = {
         "description": "Chloride concentration interpolated from NHI data",
         "units": "mg/l",

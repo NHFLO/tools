@@ -7,14 +7,14 @@ import scipy.interpolate as si
 def drn_from_waterboard_data(ds, gwf, wb="Hollands Noorderkwartier", cbot=1.0):
     """Create DRN package from waterboard data.
 
-    Het oppervlaktewater in de polders is vlakdekkend geschematiseerd op basis van 
-    peilgebieden van Hoogheemraadschap Hollands Noorderkwartier (HHNK). Hierbij 
-    zijn dus geen afzonderlijke sloten beschouwd. Voor het peil is het gemiddelde 
-    van het zomer- en winterpeil aangenomen. De conductance is bepaald met het 
-    oppervlak van een polder per cel, gedeeld door een bodemweerstand van 1 dag. Dit 
-    oppervlaktewater is via de Drain package (DRN) in het model verwerkt en kan dus 
-    alleen water afvoeren. Daar waar geen polderpeilen zijn vastgelegd door HHNK, is 
-    het gemiddelde niveau van het maaiveld toegepast om drainage op maaiveld in het 
+    Het oppervlaktewater in de polders is vlakdekkend geschematiseerd op basis van
+    peilgebieden van Hoogheemraadschap Hollands Noorderkwartier (HHNK). Hierbij
+    zijn dus geen afzonderlijke sloten beschouwd. Voor het peil is het gemiddelde
+    van het zomer- en winterpeil aangenomen. De conductance is bepaald met het
+    oppervlak van een polder per cel, gedeeld door een bodemweerstand van 1 dag. Dit
+    oppervlaktewater is via de Drain package (DRN) in het model verwerkt en kan dus
+    alleen water afvoeren. Daar waar geen polderpeilen zijn vastgelegd door HHNK, is
+    het gemiddelde niveau van het maaiveld toegepast om drainage op maaiveld in het
     model op te nemen.
 
     Parameters
@@ -27,13 +27,15 @@ def drn_from_waterboard_data(ds, gwf, wb="Hollands Noorderkwartier", cbot=1.0):
         Waterboard, by default "Holl
     cbot : float, optional
         Conductance of the drains, by default 1.0.
-    
+
     Returns
     -------
     flopy.modflow.ModflowGwfdrn
         DRN package.
     """
-    gdf = nlmod.read.waterboard.get_data(wb=wb, data_kind="level_areas", extent=ds.extent)
+    gdf = nlmod.read.waterboard.get_data(
+        wb=wb, data_kind="level_areas", extent=ds.extent
+    )
     gdf_grid = nlmod.grid.gdf_to_grid(
         gdf.loc[:, ["summer_stage", "winter_stage", "geometry"]], gwf
     )
