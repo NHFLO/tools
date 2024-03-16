@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 import xarray as xr
-
 from nhflotools.pwnlayers.layers import get_grid_gdf
 from nhflotools.pwnlayers.plot_utils import get_figure
 
@@ -33,7 +32,6 @@ def plot_heatmap_overlap(df_overlap, figsize=(10, 10)):
         DESCRIPTION.
 
     """
-
     fig, ax = plt.subplots(figsize=figsize)
     sns.heatmap(df_overlap, cmap="viridis", ax=ax, xticklabels=True, yticklabels=True)
     ax.grid()
@@ -41,9 +39,7 @@ def plot_heatmap_overlap(df_overlap, figsize=(10, 10)):
     return fig, ax
 
 
-def plot_cross_section_layer_number(
-    model_ds, gwf, figdir, x=None, y=None, cross_section_name="", ylim=(-400, 30)
-):
+def plot_cross_section_layer_number(model_ds, gwf, figdir, x=None, y=None, cross_section_name="", ylim=(-400, 30)):
     """
 
 
@@ -77,10 +73,7 @@ def plot_cross_section_layer_number(
         DESCRIPTION.
 
     """
-
-    assert (
-        model_ds.gridtype == "structured"
-    ), f"gridtype should be structured, not {model_ds.gridtype}"
+    assert model_ds.gridtype == "structured", f"gridtype should be structured, not {model_ds.gridtype}"
 
     # array met laagnummer van iedere modelcel
     lay_no = xr.zeros_like(model_ds["botm"])
@@ -92,9 +85,9 @@ def plot_cross_section_layer_number(
 
     if (x is None) and (y is None):
         raise ValueError("please assign x or y value to plot stitches")
-    elif not ((x is None) or (y is None)):
+    if not ((x is None) or (y is None)):
         raise ValueError("please assign x or y, not both")
-    elif x is None:
+    if x is None:
         row = gwf.modelgrid.intersect(model_ds.extent[1] - 1, y)[0]
         np.array([(model_ds.extent[0], y), (model_ds.extent[1], y)])
         xsect = flopy.plot.PlotCrossSection(model=gwf, line={"Row": row})
@@ -114,23 +107,15 @@ def plot_cross_section_layer_number(
             lay_bot = model_ds["botm"].sel(layer=lay)[row, :]
             lay_bot_dis = lay_bot.x.values - lay_bot.x.values.min()
             color_num = lay_no[i][0][0]
-            ax.plot(
-                lay_bot_dis, lay_bot.values, color=cmap(color_num / 10), lw=2, ls=":"
-            )
-            ax.set_title(
-                f"y: {y} Cross-Section {cross_section_name} with layer numbers"
-            )
+            ax.plot(lay_bot_dis, lay_bot.values, color=cmap(color_num / 10), lw=2, ls=":")
+            ax.set_title(f"y: {y} Cross-Section {cross_section_name} with layer numbers")
     if y is None:
         for i, lay in enumerate(model_ds.layer):
             lay_bot = model_ds["botm"].sel(layer=lay)[:, column]
             lay_bot_dis = (lay_bot.y.values - lay_bot.y.values.min())[::-1]
             color_num = lay_no[i][0][0]
-            ax.plot(
-                lay_bot_dis, lay_bot.values, color=cmap(color_num / 10), lw=2, ls=":"
-            )
-            ax.set_title(
-                f"x: {x} Cross-Section {cross_section_name} with layer numbers"
-            )
+            ax.plot(lay_bot_dis, lay_bot.values, color=cmap(color_num / 10), lw=2, ls=":")
+            ax.set_title(f"x: {x} Cross-Section {cross_section_name} with layer numbers")
 
     ax.set_ylim(ylim)
 
@@ -175,20 +160,18 @@ def plot_grid(grid, extent, extent2=None, zoom=5, loc="upper left", loc1=3, loc2
     riv_gdf.plot(ax=ax, alpha=0.5, color="r", linewidth=2)
     if extent2 is None:
         return f, ax
-    else:
-        from mpl_toolkits.axes_grid1.inset_locator import mark_inset
-        from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes
+    from mpl_toolkits.axes_grid1.inset_locator import mark_inset, zoomed_inset_axes
 
-        ax2 = zoomed_inset_axes(ax, zoom=zoom, loc=loc)
-        ax2.get_xaxis().set_ticks([])
-        ax2.get_yaxis().set_ticks([])
-        # geef met hulplijnen de locatie van ax3 weer
-        mark_inset(ax, ax2, loc1=loc1, loc2=loc2, edgecolor="w", linewidth=3)
-        plt.setp(ax2.spines.values(), color="w", linewidth=3)
-        gdf2 = get_grid_gdf(grid, extent=extent2)
-        riv_gdf2 = get_grid_gdf(grid, kind="rivers", extent=extent2)
-        gdf2.plot(ax=ax2, edgecolor="k", linewidth=0.5)
-        riv_gdf2.plot(ax=ax2, alpha=0.5, color="r", linewidth=4)
-        ax2.axis("equal")
-        ax2.axis(extent2)
-        return f, [ax, ax2]
+    ax2 = zoomed_inset_axes(ax, zoom=zoom, loc=loc)
+    ax2.get_xaxis().set_ticks([])
+    ax2.get_yaxis().set_ticks([])
+    # geef met hulplijnen de locatie van ax3 weer
+    mark_inset(ax, ax2, loc1=loc1, loc2=loc2, edgecolor="w", linewidth=3)
+    plt.setp(ax2.spines.values(), color="w", linewidth=3)
+    gdf2 = get_grid_gdf(grid, extent=extent2)
+    riv_gdf2 = get_grid_gdf(grid, kind="rivers", extent=extent2)
+    gdf2.plot(ax=ax2, edgecolor="k", linewidth=0.5)
+    riv_gdf2.plot(ax=ax2, alpha=0.5, color="r", linewidth=4)
+    ax2.axis("equal")
+    ax2.axis(extent2)
+    return f, [ax, ax2]

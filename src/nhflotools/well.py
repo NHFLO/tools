@@ -1,7 +1,7 @@
 import os
 
-import pandas as pd
 import geopandas as gpd
+import pandas as pd
 
 
 def get_wells_pwn_dataframe(data_path_wells_pwn, flow_product="median"):
@@ -24,9 +24,7 @@ def get_wells_pwn_dataframe(data_path_wells_pwn, flow_product="median"):
     gpd.GeoDataFrame, optional
         GeoDataFrame with flow timeseries [m3/day]. Not implemented yet.
     """
-    wdf = gpd.read_file(
-        os.path.join(data_path_wells_pwn, "pumping_infiltration_wells.geojson")
-    )
+    wdf = gpd.read_file(os.path.join(data_path_wells_pwn, "pumping_infiltration_wells.geojson"))
     wdf.index = wdf.locatie
     wdf["x"] = wdf.geometry.x
     wdf["y"] = wdf.geometry.y
@@ -46,12 +44,11 @@ def get_wells_pwn_dataframe(data_path_wells_pwn, flow_product="median"):
         # return wdf, flows
 
     # If constant
-    elif flow_product == "median":
+    if flow_product == "median":
         constant_flow = flows.median(axis=0)
         wdf["sec_nput"] = pd.to_numeric(wdf["sec_nput"], errors="coerce")
         wdf["Q"] = wdf.sec_flow_tag.map(constant_flow) / wdf.sec_nput * 24.0
         wdf = wdf.dropna(subset=["Q"])
         return wdf
 
-    else:
-        raise ValueError(f"flow_product {flow_product} not implemented")
+    raise ValueError(f"flow_product {flow_product} not implemented")

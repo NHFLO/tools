@@ -9,13 +9,11 @@ import pandas as pd
 import pykrige
 import xarray as xr
 from scipy.interpolate import griddata
-from shapely.geometry import Point
-from shapely.geometry import Polygon
+from shapely.geometry import Point, Polygon
 
 
 def get_pwn_layer_model(modelgrid, shpdir, plot=False):
-    """reads PWN shapefiles and converts to a layer model Dataset
-
+    """Reads PWN shapefiles and converts to a layer model Dataset
 
     Parameters
     ----------
@@ -52,15 +50,11 @@ def get_pwn_layer_model(modelgrid, shpdir, plot=False):
                 shpnam = "2"
             shpnam = shpfolder[0:2].upper() + shpnam
             try:
-                poly = gpd.read_file(
-                    os.path.join(shpdir, shpfolder, f"{shpnam}_pol.shp")
-                )
+                poly = gpd.read_file(os.path.join(shpdir, shpfolder, f"{shpnam}_pol.shp"))
             except Exception:
                 poly = gpd.read_file(os.path.join(shpdir, shpfolder, f"{shpnam}.shp"))
             try:
-                pts = gpd.read_file(
-                    os.path.join(shpdir, shpfolder, f"{shpnam}_point.shp")
-                )
+                pts = gpd.read_file(os.path.join(shpdir, shpfolder, f"{shpnam}_point.shp"))
             except Exception:
                 pts = None
 
@@ -137,7 +131,6 @@ def get_pwn_layer_model(modelgrid, shpdir, plot=False):
     )
     z_mv[np.isnan(z_mv)] = 0.0
 
-    #
     b_1a, b_1b, b_1c, b_1d, b_q2 = data["Basis_aquitard"]
     d_1a, d_1b, d_1c, d_1d, d_q2 = data["Dikte_aquitard"]
 
@@ -149,21 +142,35 @@ def get_pwn_layer_model(modelgrid, shpdir, plot=False):
     minthick = 0.01
 
     for ilay in range(1, 5):
-        top[ilay] = np.where(
-            top[ilay] < bot[ilay - 1], top[ilay], bot[ilay - 1] - minthick
-        )
+        top[ilay] = np.where(top[ilay] < bot[ilay - 1], top[ilay], bot[ilay - 1] - minthick)
 
     # check bots
     for ilay in range(1, 5):
         bot[ilay] = np.where(bot[ilay] < top[ilay], bot[ilay], top[ilay] - minthick)
 
     # add aquitards
-    top2 = np.vstack(
-        [top[0], bot[0], top[1], bot[1], top[2], bot[2], top[3], bot[3], top[4]]
-    )
-    bot2 = np.vstack(
-        [bot[0], top[1], bot[1], top[2], bot[2], top[3], bot[3], top[4], bot[4]]
-    )
+    top2 = np.vstack([
+        top[0],
+        bot[0],
+        top[1],
+        bot[1],
+        top[2],
+        bot[2],
+        top[3],
+        bot[3],
+        top[4],
+    ])
+    bot2 = np.vstack([
+        bot[0],
+        top[1],
+        bot[1],
+        top[2],
+        bot[2],
+        top[3],
+        bot[3],
+        top[4],
+        bot[4],
+    ])
 
     # create data arrays
     x = xr.DataArray(modelgrid.xcellcenters, dims=("icell2d"))
@@ -182,7 +189,6 @@ def get_pwn_layer_model(modelgrid, shpdir, plot=False):
 
     thickness = t_da - b_da
 
-    #
     if plot:
         cmap = plt.get_cmap("viridis")
         vmin = b_da.min()
@@ -212,7 +218,6 @@ def get_pwn_layer_model(modelgrid, shpdir, plot=False):
 
         fig.colorbar(qm, ax=ax, shrink=1.0)
 
-        #
         for ilay in range(thickness.shape[0]):
             cmap = plt.get_cmap("RdBu")
             vmax = thickness[ilay].max()
@@ -222,9 +227,7 @@ def get_pwn_layer_model(modelgrid, shpdir, plot=False):
             ax.set_aspect("equal")
 
             mv2 = flopy.plot.PlotMapView(modelgrid=modelgrid, ax=ax)
-            qm = mv2.plot_array(
-                thickness.sel(layer=ilay), cmap=cmap, vmin=vmin, vmax=vmax
-            )
+            qm = mv2.plot_array(thickness.sel(layer=ilay), cmap=cmap, vmin=vmin, vmax=vmax)
             mv2.plot_grid(color="k", lw=0.25)
             ax.set_title(f"Layer {ilay}")
             ax.axis(modelgrid.extent)
@@ -237,9 +240,7 @@ def get_pwn_layer_model(modelgrid, shpdir, plot=False):
     cdefaults = [1.0, 100.0, 100.0, 1.0, 1.0]
 
     for j, letter in enumerate(["1A", "1B", "1C", "1D", "2"]):
-        poly = gpd.read_file(
-            os.path.join(shpdir, "..", "Bodemparams", f"C{letter}.shp")
-        )
+        poly = gpd.read_file(os.path.join(shpdir, "..", "Bodemparams", f"C{letter}.shp"))
 
         arr = cdefaults[j] * np.ones_like(modelgrid.xcellcenters)
 
@@ -265,7 +266,6 @@ def get_pwn_layer_model(modelgrid, shpdir, plot=False):
         fig.colorbar(qm, ax=ax, shrink=1.0)
         fig.tight_layout()
 
-    #
     f_anisotropy = 0.25
 
     kh = xr.zeros_like(t_da)
@@ -293,15 +293,13 @@ def get_pwn_layer_model(modelgrid, shpdir, plot=False):
     # create new dataset
     new_layer_ds = xr.Dataset(data_vars={"top": t_da, "bot": b_da, "kh": kh, "kv": kv})
 
-    new_layer_ds = new_layer_ds.assign_coords(
-        coords={"layer": [f"hlc_{i}" for i in range(new_layer_ds.dims["layer"])]}
-    )
+    new_layer_ds = new_layer_ds.assign_coords(coords={"layer": [f"hlc_{i}" for i in range(new_layer_ds.dims["layer"])]})
 
     return new_layer_ds
 
 
 def update_layermodel(layermodel_orig, layermodel_update):
-    """updates the REGIS Holocene layer with information from a PWN layer
+    """Updates the REGIS Holocene layer with information from a PWN layer
     dataset
 
 
@@ -371,21 +369,11 @@ def update_layermodel(layermodel_orig, layermodel_update):
 
     for lay in range(layermodel_update.dims["layer"]):
         # Alle nieuwe cellen die onder de onderkant van het holoceen liggen worden inactief
-        mask1 = layermodel_update["top"][lay] <= (
-            layermodel_orig["bot"][layer_no] - float_correction
-        )
-        layermodel_update["top"][lay] = xr.where(
-            mask1, np.nan, layermodel_update["top"][lay]
-        )
-        layermodel_update["bot"][lay] = xr.where(
-            mask1, np.nan, layermodel_update["bot"][lay]
-        )
-        layermodel_update["kh"][lay] = xr.where(
-            mask1, np.nan, layermodel_update["kh"][lay]
-        )
-        layermodel_update["kv"][lay] = xr.where(
-            mask1, np.nan, layermodel_update["kv"][lay]
-        )
+        mask1 = layermodel_update["top"][lay] <= (layermodel_orig["bot"][layer_no] - float_correction)
+        layermodel_update["top"][lay] = xr.where(mask1, np.nan, layermodel_update["top"][lay])
+        layermodel_update["bot"][lay] = xr.where(mask1, np.nan, layermodel_update["bot"][lay])
+        layermodel_update["kh"][lay] = xr.where(mask1, np.nan, layermodel_update["kh"][lay])
+        layermodel_update["kv"][lay] = xr.where(mask1, np.nan, layermodel_update["kv"][lay])
 
         # Alle geotop cellen waarvan de bodem onder de onderkant van het holoceen ligt, krijgen als bodem de onderkant van het holoceen
         mask2 = layermodel_update["bot"][lay] < layermodel_orig["bot"][layer_no]
@@ -412,43 +400,25 @@ def update_layermodel(layermodel_orig, layermodel_update):
 
         # overal waar holoceen inactief is, wordt geotop ook inactief
         mask5 = layermodel_orig["bot"][layer_no].isnull()
-        layermodel_update["top"][lay] = xr.where(
-            mask5, np.nan, layermodel_update["top"][lay]
-        )
-        layermodel_update["bot"][lay] = xr.where(
-            mask5, np.nan, layermodel_update["bot"][lay]
-        )
-        layermodel_update["kh"][lay] = xr.where(
-            mask5, np.nan, layermodel_update["kh"][lay]
-        )
-        layermodel_update["kv"][lay] = xr.where(
-            mask5, np.nan, layermodel_update["kv"][lay]
-        )
+        layermodel_update["top"][lay] = xr.where(mask5, np.nan, layermodel_update["top"][lay])
+        layermodel_update["bot"][lay] = xr.where(mask5, np.nan, layermodel_update["bot"][lay])
+        layermodel_update["kh"][lay] = xr.where(mask5, np.nan, layermodel_update["kh"][lay])
+        layermodel_update["kv"][lay] = xr.where(mask5, np.nan, layermodel_update["kv"][lay])
 
         if (mask2 * (~mask1)).sum() > 0:
-            print(
-                f"regis holoceen snijdt door laag {layermodel_update.layer[lay].values}"
-            )
+            print(f"regis holoceen snijdt door laag {layermodel_update.layer[lay].values}")
 
     top_new[: len(layermodel_update.layer), :] = layermodel_update["top"].data
-    top_new[len(layermodel_update.layer) :, :] = layermodel_orig["top"].data[
-        layer_no + 1 :
-    ]
+    top_new[len(layermodel_update.layer) :, :] = layermodel_orig["top"].data[layer_no + 1 :]
 
     bot_new[: len(layermodel_update.layer), :] = layermodel_update["bot"].data
-    bot_new[len(layermodel_update.layer) :, :] = layermodel_orig["bot"].data[
-        layer_no + 1 :
-    ]
+    bot_new[len(layermodel_update.layer) :, :] = layermodel_orig["bot"].data[layer_no + 1 :]
 
     kh_new[: len(layermodel_update.layer), :] = layermodel_update["kh"].data
-    kh_new[len(layermodel_update.layer) :, :] = layermodel_orig["kh"].data[
-        layer_no + 1 :
-    ]
+    kh_new[len(layermodel_update.layer) :, :] = layermodel_orig["kh"].data[layer_no + 1 :]
 
     kv_new[: len(layermodel_update.layer), :] = layermodel_update["kv"].data
-    kv_new[len(layermodel_update.layer) :, :] = layermodel_orig["kv"].data[
-        layer_no + 1 :
-    ]
+    kv_new[len(layermodel_update.layer) :, :] = layermodel_orig["kv"].data[layer_no + 1 :]
 
     regis_pwn_ds["top"] = top_new
     regis_pwn_ds["bot"] = bot_new
@@ -465,7 +435,7 @@ def update_layermodel(layermodel_orig, layermodel_update):
 
 
 def get_surface_water_bgt(oppwaterg, fname_bgt, gwf, cachedir="."):
-    """read surface water data from a bgt geojson file
+    """Read surface water data from a bgt geojson file
 
     Parameters
     ----------
@@ -520,9 +490,7 @@ def get_surface_water_bgt(oppwaterg, fname_bgt, gwf, cachedir="."):
                 bgt = bgt.drop(index)
 
         # cut by the grid
-        bgtg = nlmod.mdims.gdf2grid(
-            bgt, gwf, method="vertex", desc="Intersecting bgt with grid"
-        )
+        bgtg = nlmod.mdims.gdf2grid(bgt, gwf, method="vertex", desc="Intersecting bgt with grid")
         bgtg.reset_index().to_file(fname_bgtg, driver="GeoJSON")
 
     # replace the shapes in bgtg by the ones from pwn
@@ -557,39 +525,33 @@ def get_surface_water_bgt(oppwaterg, fname_bgt, gwf, cachedir="."):
         bgtg = bgtg.drop(opw2bgt[name])
 
     # remove other surface water in dunes nearby pumping station
-    bgtg = bgtg.drop(
-        [
-            "G0373.e679cb9e868c4fdab8b4e7ef9013834f",
-            "W0651.f741c8d00fc64c7c98c8e3f11cbff325",
-            "W0651.476d8e16fd314ca6ba91f6904c07698f",
-            "W0651.c8ab0748c2fc436fa596352e2c3515a2",
-        ]
-    )
+    bgtg = bgtg.drop([
+        "G0373.e679cb9e868c4fdab8b4e7ef9013834f",
+        "W0651.f741c8d00fc64c7c98c8e3f11cbff325",
+        "W0651.476d8e16fd314ca6ba91f6904c07698f",
+        "W0651.c8ab0748c2fc436fa596352e2c3515a2",
+    ])
 
     # and south of boringkanaal C
-    bgtg = bgtg.drop(
-        [
-            "W0651.5e21acfa055d4915af629bf77c165c35",
-            "W0651.8c29fa2fbbe8437494bd827e7302655c",
-            "W0651.923a762194ca47c6b686d2443231d407",
-            "W0651.6df2a79d1e184cdd88bf76ce64b76422",
-            "W0651.f2d8aa8fa45949f2ad6ba14c70b30a54",
-            "W0651.a99152df739947a2a1a5411157328287",
-            "W0651.45b659b8d5254f4eb2a4dc440cd464b2",
-        ]
-    )
+    bgtg = bgtg.drop([
+        "W0651.5e21acfa055d4915af629bf77c165c35",
+        "W0651.8c29fa2fbbe8437494bd827e7302655c",
+        "W0651.923a762194ca47c6b686d2443231d407",
+        "W0651.6df2a79d1e184cdd88bf76ce64b76422",
+        "W0651.f2d8aa8fa45949f2ad6ba14c70b30a54",
+        "W0651.a99152df739947a2a1a5411157328287",
+        "W0651.45b659b8d5254f4eb2a4dc440cd464b2",
+    ])
     # some ponds near the sea
-    bgtg = bgtg.drop(
-        [
-            "G0373.88944c1bb9e14bdfb35dc46d2c6eff70",
-            "W0651.15d7bba7d7b9462d9585095d7407cd80",
-            "W0651.e74ba578b2c14f349e72f8d301500dde",
-            "G0373.2045f4999fe6446eb42c4705698e74ab",
-            "W0651.e16e974e96484d07b55ec2e0ebf5459f",
-            "W0651.2d134bd13ad94d8bb6977140fe8bf4ab",
-            "G0373.ab88b1eb82da4831be36b6a785ff7ec4",
-        ]
-    )
+    bgtg = bgtg.drop([
+        "G0373.88944c1bb9e14bdfb35dc46d2c6eff70",
+        "W0651.15d7bba7d7b9462d9585095d7407cd80",
+        "W0651.e74ba578b2c14f349e72f8d301500dde",
+        "G0373.2045f4999fe6446eb42c4705698e74ab",
+        "W0651.e16e974e96484d07b55ec2e0ebf5459f",
+        "W0651.2d134bd13ad94d8bb6977140fe8bf4ab",
+        "G0373.ab88b1eb82da4831be36b6a785ff7ec4",
+    ])
 
     return bgtg
 
@@ -711,8 +673,7 @@ def line2hfb(gdf, gwf, prevent_rings=True, plot=False):
 
 
 def plot_hfb(cellids, gwf, ax=None):
-    """plots a horizontal flow barrier
-
+    """Plots a horizontal flow barrier
 
     Parameters
     ----------

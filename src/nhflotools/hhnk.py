@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Created on Mon Jun 29 15:18:06 2020
 
@@ -16,7 +15,7 @@ def get_filters(documentVersion="1.25", documentFormat="PI_JSON"):
     url = "https://fews.hhnk.nl/FewsWebServices/rest/fewspiservice/v1/filters"
     params = {"documentVersion": documentVersion, "documentFormat": documentFormat}
     r = requests.get(url, params=params)
-    if r.status_code not in [200]:
+    if r.status_code != 200:
         raise (Exception(r.text))
     return r.json()["filters"][0]
 
@@ -36,7 +35,7 @@ def get_locations(
     }
 
     r = requests.get(url, params=params)
-    if r.status_code not in [200]:
+    if r.status_code != 200:
         raise (Exception(r.text))
     # make a GeoDataFrame
     df = pd.DataFrame(r.json()["locations"]).set_index("locationId")
@@ -74,7 +73,7 @@ def get_timeseries(
         params["endTime"] = endTime.strftime("%Y-%m-%dT%H:%M:%SZ")
     params.update(kwargs)
     r = requests.get(url, params=params)
-    if r.status_code not in [200]:
+    if r.status_code != 200:
         raise (Exception(r.text))
     tss = r.json()["timeSeries"]
     df = pd.DataFrame([x["header"] for x in tss]).set_index("locationId")

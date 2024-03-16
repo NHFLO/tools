@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Created on Wed Sep 12 12:15:42 2018
 
@@ -15,19 +14,13 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import scipy.spatial.qhull as qhull
-from flopy.utils import Util2d
-from flopy.utils import Util3d
-from flopy.utils import reference
+from flopy.utils import Util2d, Util3d, reference
 from matplotlib.path import Path
-from matplotlib.ticker import FuncFormatter
-from matplotlib.ticker import MultipleLocator
+from matplotlib.ticker import FuncFormatter, MultipleLocator
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from numpy.lib.recfunctions import append_fields
-from shapely.geometry import MultiLineString
-from shapely.geometry import MultiPolygon
-from shapely.geometry import Point
-from shapely.geometry import Polygon
+from scipy.spatial import qhull
+from shapely.geometry import MultiLineString, MultiPolygon, Point, Polygon
 from shapely.strtree import STRtree
 from tqdm import tqdm
 
@@ -100,9 +93,7 @@ def geodataframe2grid2(gdf, mgrid=None, grid_ix=None, keepcols=None, progressbar
 
     reclist = []
 
-    for _, row in (
-        tqdm(gdf.iterrows(), total=gdf.index.size) if progressbar else gdf.iterrows()
-    ):
+    for _, row in tqdm(gdf.iterrows(), total=gdf.index.size) if progressbar else gdf.iterrows():
         ishp = row.geometry
 
         if not ishp.is_valid:
@@ -112,13 +103,8 @@ def geodataframe2grid2(gdf, mgrid=None, grid_ix=None, keepcols=None, progressbar
 
         if keepcols is not None:
             dtypes = gdf.dtypes.loc[keepcols].to_list()
-            val_arrs = [
-                ival * np.ones(r.shape[0], dtype=idtype)
-                for ival, idtype in zip(row.loc[keepcols], dtypes)
-            ]
-            r = append_fields(
-                r, keepcols, val_arrs, dtypes, usemask=False, asrecarray=True
-            )
+            val_arrs = [ival * np.ones(r.shape[0], dtype=idtype) for ival, idtype in zip(row.loc[keepcols], dtypes)]
+            r = append_fields(r, keepcols, val_arrs, dtypes, usemask=False, asrecarray=True)
         if r.shape[0] > 0:
             reclist.append(r)
 
@@ -129,20 +115,13 @@ def geodataframe2grid2(gdf, mgrid=None, grid_ix=None, keepcols=None, progressbar
 
 
 def _add_shapes_to_list(i, geometryType, geom_col_name, row, shp_list, r):
-    """subfunction of geodataframe2grid"""
+    """Subfunction of geodataframe2grid"""
     if geometryType == "LineString":
         if not i.is_empty:
             it = i.geometryType()
-            if it == "GeometryCollection":
+            if it == "GeometryCollection" or it == "MultiLineString":
                 for im in i.geoms:
-                    _add_shapes_to_list(
-                        im, geometryType, geom_col_name, row, shp_list, r
-                    )
-            elif it == "MultiLineString":
-                for im in i.geoms:
-                    _add_shapes_to_list(
-                        im, geometryType, geom_col_name, row, shp_list, r
-                    )
+                    _add_shapes_to_list(im, geometryType, geom_col_name, row, shp_list, r)
             elif it == "LineString":
                 # TODO: to make sure lines are not counted double
                 # do not add the line if the line is on the north or west
@@ -159,15 +138,10 @@ def _add_shapes_to_list(i, geometryType, geom_col_name, row, shp_list, r):
                 # mutiple endpoints of the linestring are on the cell-edge
                 pass
             else:
-                raise NotImplementedError(
-                    "geometryType " + it + " not yet supprted in geodataframe2grid"
-                )
+                raise NotImplementedError("geometryType " + it + " not yet supprted in geodataframe2grid")
     elif geometryType == "Polygon" or geometryType == "MultiPolygon":
         it = i.geometryType()
-        if it == "GeometryCollection":
-            for im in i.geoms:
-                _add_shapes_to_list(im, geometryType, geom_col_name, row, shp_list, r)
-        elif it == "MultiPolygon":
+        if it == "GeometryCollection" or it == "MultiPolygon":
             for im in i.geoms:
                 _add_shapes_to_list(im, geometryType, geom_col_name, row, shp_list, r)
         elif it == "Polygon":
@@ -183,13 +157,9 @@ def _add_shapes_to_list(i, geometryType, geom_col_name, row, shp_list, r):
             # one of the edges of the polygon is on a cell-egde
             pass
         else:
-            raise NotImplementedError(
-                "geometryType " + it + " not yet supprted in geodataframe2grid"
-            )
+            raise NotImplementedError("geometryType " + it + " not yet supprted in geodataframe2grid")
     else:
-        raise NotImplementedError(
-            "geometryType " + geometryType + " not yet supprted in geodataframe2grid"
-        )
+        raise NotImplementedError("geometryType " + geometryType + " not yet supprted in geodataframe2grid")
 
 
 def refine_grid(ml, xe_new, ye_new):
@@ -218,9 +188,7 @@ def refine_grid(ml, xe_new, ye_new):
         setattr(pack, parnam, value)
 
     def set_util3d(pack, parnam, parval, dtype=np.float32):
-        value = Util3d(
-            pack.parent, parval.shape, dtype, parval, parnam, locat=pack.unit_number[0]
-        )
+        value = Util3d(pack.parent, parval.shape, dtype, parval, parnam, locat=pack.unit_number[0])
         setattr(pack, parnam, value)
 
     def change_util2d(pack, parnam, sr_old, grid, ygrid):
@@ -274,9 +242,7 @@ def refine_grid(ml, xe_new, ye_new):
             change_util3d(ml.rch, "rech", sr_old, xgrid, ygrid)
 
         else:
-            raise NotImplementedError(
-                pack + "-package not implemeted yet in refine_grid"
-            )
+            raise NotImplementedError(pack + "-package not implemeted yet in refine_grid")
 
 
 def unzip_file(src, dst, force=False, preserve_datetime=False):
@@ -301,10 +267,7 @@ def unzip_file(src, dst, force=False, preserve_datetime=False):
     """
     if os.path.exists(dst):
         if not force:
-            print(
-                "File not unzipped. Destination already exists. "
-                "Use 'force=True' to unzip."
-            )
+            print("File not unzipped. Destination already exists. " "Use 'force=True' to unzip.")
             return
     if preserve_datetime:
         zipf = zipfile.ZipFile(src, "r")
@@ -336,9 +299,7 @@ def df2gdf(df, xcol="x", ycol="y"):
     -------
     gdf : geopandas.GeoDataFrame
     """
-    gdf = gpd.GeoDataFrame(
-        df.copy(), geometry=[Point((s[xcol], s[ycol])) for i, s in df.iterrows()]
-    )
+    gdf = gpd.GeoDataFrame(df.copy(), geometry=[Point((s[xcol], s[ycol])) for i, s in df.iterrows()])
     return gdf
 
 
@@ -368,9 +329,7 @@ def script_newer_than_output(fscript, foutput):
     return np.all(tm_script > tm_output)
 
 
-def unzip_changed_files(
-    zipname, pathname, check_time=True, check_size=False, debug=False
-):
+def unzip_changed_files(zipname, pathname, check_time=True, check_size=False, debug=False):
     # Extract each file in a zip-file only when the properties are different
     # With the default arguments this method only checks the modification time
     with zipfile.ZipFile(zipname) as zf:
@@ -393,7 +352,7 @@ def unzip_changed_files(
                 extract = True
             if extract:
                 if debug:
-                    print("extracting {}".format(info.filename))
+                    print(f"extracting {info.filename}")
                 zf.extract(info.filename, pathname)
                 # set the correct modification time
                 # (which is the time of extraction by default)
@@ -428,7 +387,6 @@ def interp_weights(xy, uv, d=2):
     https://stackoverflow.com/questions/20915502/speedup-scipy-griddata-for-multiple-interpolations-between-two-irregular-grids
 
     """
-
     tri = qhull.Delaunay(xy)
     simplex = tri.find_simplex(uv)
     vertices = np.take(tri.simplices, simplex, axis=0)
@@ -439,7 +397,7 @@ def interp_weights(xy, uv, d=2):
 
 
 def interpolate(values, vtx, wts):
-    """interpolate values at locations defined by vertices and points,
+    """Interpolate values at locations defined by vertices and points,
        as calculated by interp_weights function.
 
     Parameters
@@ -462,12 +420,11 @@ def interpolate(values, vtx, wts):
     https://stackoverflow.com/questions/20915502/speedup-scipy-griddata-for-multiple-interpolations-between-two-irregular-grids
 
     """
-
     return np.einsum("nj,nj->n", np.take(values, vtx), wts)
 
 
 def inpolygon(x, y, polygon, engine="matplotlib"):
-    """find out which points defined by x and y are within polygon
+    """Find out which points defined by x and y are within polygon
 
     Parameters
     ----------
@@ -493,7 +450,7 @@ def inpolygon(x, y, polygon, engine="matplotlib"):
             mask = np.full((len(points)), False)
             for pol2 in polygon:
                 if not isinstance(pol2, Polygon):
-                    raise (Exception("{} not supported".format(type(pol2))))
+                    raise (Exception(f"{type(pol2)} not supported"))
                 if isinstance(pol2.boundary, MultiLineString):
                     xb, yb = pol2.boundary[0].xy
                 else:
@@ -505,7 +462,7 @@ def inpolygon(x, y, polygon, engine="matplotlib"):
             path = Path(list(zip(xb, yb)))
             mask = path.contains_points(points)
         else:
-            raise (Exception("{} not supported".format(type(polygon))))
+            raise (Exception(f"{type(polygon)} not supported"))
     else:
         mask = [polygon.contains(Point(x, y)) for x, y in points]
         mask = np.array(mask)

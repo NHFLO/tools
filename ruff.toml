@@ -1,0 +1,41 @@
+# https://github.com/pypa/hatch/blob/master/ruff_defaults.toml
+extend = "ruff_defaults.toml"
+
+# https://github.com/astral-sh/ruff/issues/8627
+exclude = [".git", ".mypy_cache", ".ruff_cache", ".venv", ".direnv",
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+]
+
+extend-include = ["*.ipynb"]
+
+[format]
+preview = true
+
+[lint]
+preview = true
+extend-select = ["D"]
+
+[lint.pydocstyle]
+convention = "numpy"

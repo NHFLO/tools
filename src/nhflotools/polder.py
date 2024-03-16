@@ -1,7 +1,7 @@
 import nlmod
 import numpy as np
-import xarray as xr
 import scipy.interpolate as si
+import xarray as xr
 
 
 def drn_from_waterboard_data(ds, gwf, wb="Hollands Noorderkwartier", cbot=1.0):
@@ -33,19 +33,13 @@ def drn_from_waterboard_data(ds, gwf, wb="Hollands Noorderkwartier", cbot=1.0):
     flopy.modflow.ModflowGwfdrn
         DRN package.
     """
-    gdf = nlmod.read.waterboard.get_data(
-        wb=wb, data_kind="level_areas", extent=ds.extent
-    )
-    gdf_grid = nlmod.grid.gdf_to_grid(
-        gdf.loc[:, ["summer_stage", "winter_stage", "geometry"]], gwf
-    )
+    gdf = nlmod.read.waterboard.get_data(wb=wb, data_kind="level_areas", extent=ds.extent)
+    gdf_grid = nlmod.grid.gdf_to_grid(gdf.loc[:, ["summer_stage", "winter_stage", "geometry"]], gwf)
     fields_methods = {
         "summer_stage": "area_weighted",
         "winter_stage": "area_weighted",
     }
-    celldata = nlmod.grid.aggregate_vector_per_cell(
-        gdf_grid, fields_methods=fields_methods
-    )
+    celldata = nlmod.grid.aggregate_vector_per_cell(gdf_grid, fields_methods=fields_methods)
     celldata["x"] = ds.sel(icell2d=celldata.index)["x"]
     celldata["y"] = ds.sel(icell2d=celldata.index)["y"]
     celldata["area"] = ds.sel(icell2d=celldata.index)["area"]
@@ -66,9 +60,7 @@ def drn_from_waterboard_data(ds, gwf, wb="Hollands Noorderkwartier", cbot=1.0):
     drn_elev = xr.where(drn_elev.isnull(), ds["ahn"], drn_elev)
     drn_cond = xr.full_like(ds.top, 0.0)
     drn_cond.loc[dict(icell2d=celldata.index)] = celldata.cond.values
-    drn_cond = xr.where(
-        drn_cond.isnull() & ds["ahn"].notnull(), ds.area / cbot, drn_cond
-    )
+    drn_cond = xr.where(drn_cond.isnull() & ds["ahn"].notnull(), ds.area / cbot, drn_cond)
     drn_cond = drn_cond.clip(max=ds.area.max())
     ds["drn_elev"] = drn_elev
     ds["drn_cond"] = drn_cond

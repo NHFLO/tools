@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Created on Tue Oct  9 17:52:16 2018
 
@@ -37,8 +36,7 @@ def fill_gaps(top, x, y, method="nearest"):
 
 
 def read_ado(fname, eof_char=""):
-    """read a .ado file from a Triwaco model
-
+    """Read a .ado file from a Triwaco model
 
     Parameters
     ----------
@@ -55,7 +53,7 @@ def read_ado(fname, eof_char=""):
 
     """
     data = {}
-    with open(fname, "r") as f:
+    with open(fname) as f:
         # ------------------------------------------------------------------------
         f.readline()
         r = read_sets(f, data)
@@ -64,7 +62,7 @@ def read_ado(fname, eof_char=""):
 
 
 def read_teo(fname):
-    """read a .teo file with triwaco grid data
+    """Read a .teo file with triwaco grid data
 
     Parameters
     ----------
@@ -78,7 +76,7 @@ def read_teo(fname):
 
     """
     data = {}
-    with open(fname, "r") as f:
+    with open(fname) as f:
         data["identification"] = f.readline().strip()
         for i in range(7):
             p = f.readline().strip().split("=")
@@ -93,7 +91,7 @@ def read_teo(fname):
 
 def read_flo(fname, eof_char="******"):
     data = {}
-    with open(fname, "r") as f:
+    with open(fname) as f:
         data["identification"] = f.readline().strip()
         # ------------------------------------------------------------------------
         f.readline()
@@ -112,8 +110,7 @@ def read_flo(fname, eof_char="******"):
 
 
 def read_sets(f, data):
-    """read data from a triwaco file
-
+    """Read data from a triwaco file
 
     Parameters
     ----------

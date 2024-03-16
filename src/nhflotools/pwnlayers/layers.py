@@ -90,21 +90,13 @@ def get_pwn_layer_model(
     layer_model_bergen, transition_model_bergen = get_bergen_layer_model(
         ds_pwn_data=ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness
     )
-    thick_layer_model_mensink = nlmod.dims.layers.calculate_thickness(
-        layer_model_mensink
-    )
+    thick_layer_model_mensink = nlmod.dims.layers.calculate_thickness(layer_model_mensink)
     thick_layer_model_bergen = nlmod.dims.layers.calculate_thickness(layer_model_bergen)
     thick_layer_model_regis = nlmod.dims.layers.calculate_thickness(layer_model_regis)
 
-    assert ~(
-        thick_layer_model_mensink < 0.0
-    ).any(), "Mensink thickness of layers should be positive"
-    assert ~(
-        thick_layer_model_bergen < 0.0
-    ).any(), "Bergen thickness of layers should be positive"
-    assert ~(
-        thick_layer_model_regis < 0.0
-    ).any(), "Regis thickness of layers should be positive"
+    assert ~(thick_layer_model_mensink < 0.0).any(), "Mensink thickness of layers should be positive"
+    assert ~(thick_layer_model_bergen < 0.0).any(), "Bergen thickness of layers should be positive"
+    assert ~(thick_layer_model_regis < 0.0).any(), "Regis thickness of layers should be positive"
 
     # Read the koppeltabel CSV file
     df_koppeltabel = pd.read_csv(fname_koppeltabel, skiprows=0, index_col=0)
@@ -121,12 +113,8 @@ def get_pwn_layer_model(
     )
     if fix_min_layer_thickness:
         _set_fix_min_layer_thickness(layer_model_mensink_regis)
-    thick_layer_model_mensink_regis = nlmod.dims.layers.calculate_thickness(
-        layer_model_mensink_regis
-    )
-    assert ~(
-        thick_layer_model_mensink_regis < 0.0
-    ).any(), "Mensink_regis thickness of layers should be positive"
+    thick_layer_model_mensink_regis = nlmod.dims.layers.calculate_thickness(layer_model_mensink_regis)
+    assert ~(thick_layer_model_mensink_regis < 0.0).any(), "Mensink_regis thickness of layers should be positive"
 
     # Combine PWN layer model with Bergen layer model and REGIS layer model
     (
@@ -165,16 +153,12 @@ def get_pwn_layer_model(
 
 
 def _set_fix_min_layer_thickness(ds):
-    out = xr.concat(
-        (ds["top"].expand_dims(dim={"layer": ["mv"]}, axis=0), ds["botm"]), dim="layer"
-    )
+    out = xr.concat((ds["top"].expand_dims(dim={"layer": ["mv"]}, axis=0), ds["botm"]), dim="layer")
 
     # Use ffill here to fill the nan's with the previous layer. Layer thickness is zero for non existing layers
     out = out.ffill(dim="layer")
     out.values = np.minimum.accumulate(out.values, axis=out.dims.index("layer"))
-    ds["botm"].values = (
-        out.isel(layer=slice(1, None)).transpose("layer", "icell2d").values
-    )
+    ds["botm"].values = out.isel(layer=slice(1, None)).transpose("layer", "icell2d").values
 
 
 def combine_two_layer_models(
@@ -276,9 +260,9 @@ def combine_two_layer_models(
         assert all(
             var in transition_model.variables for var in ["kh", "kv", "botm"]
         ), "Variable 'kh', 'kv', or 'botm' is missing in transition_model"
-        assert all(
-            [np.issubdtype(dtype, bool) for dtype in transition_model.dtypes.values()]
-        ), "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
+        assert all([
+            np.issubdtype(dtype, bool) for dtype in transition_model.dtypes.values()
+        ]), "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
 
     assert (
         not dfk[koppeltabel_header_regis].str.contains("_").any()
@@ -290,88 +274,56 @@ def combine_two_layer_models(
     basenames_other = [layer.split("_")[0] for layer in layer_model_other.layer.values]
 
     # Only select part of the table that appears in the two layer models
-    dfk_mask = dfk[koppeltabel_header_regis].isin(basenames_regis) & dfk[
-        koppeltabel_header_other
-    ].isin(basenames_other)
+    dfk_mask = dfk[koppeltabel_header_regis].isin(basenames_regis) & dfk[koppeltabel_header_other].isin(basenames_other)
     dfk = dfk[dfk_mask]
 
     logger.info("Combining layer models")
 
     # Construct a new layer index for the split REGIS layers
-    dfk["Regis_split_index"] = (
-        dfk.groupby(koppeltabel_header_regis).cumcount() + 1
-    ).astype(str)
-    dfk["Regis_split"] = dfk[koppeltabel_header_regis].str.cat(
-        dfk["Regis_split_index"], sep="_"
-    )
-    dfk["Pwn_split_index"] = (
-        dfk.groupby(koppeltabel_header_other).cumcount() + 1
-    ).astype(str)
-    dfk["Pwn_split"] = dfk[koppeltabel_header_other].str.cat(
-        dfk["Pwn_split_index"], sep="_"
-    )
+    dfk["Regis_split_index"] = (dfk.groupby(koppeltabel_header_regis).cumcount() + 1).astype(str)
+    dfk["Regis_split"] = dfk[koppeltabel_header_regis].str.cat(dfk["Regis_split_index"], sep="_")
+    dfk["Pwn_split_index"] = (dfk.groupby(koppeltabel_header_other).cumcount() + 1).astype(str)
+    dfk["Pwn_split"] = dfk[koppeltabel_header_other].str.cat(dfk["Pwn_split_index"], sep="_")
 
     # Leave out lower REGIS layers
-    top_regis_mask = np.array(
-        [i in dfk[koppeltabel_header_regis].values for i in basenames_regis]
-    )
-    assert (
-        np.diff(top_regis_mask).sum() == 1
-    ), "REGIS layers should be consequtive from top to bottom."
+    top_regis_mask = np.array([i in dfk[koppeltabel_header_regis].values for i in basenames_regis])
+    assert np.diff(top_regis_mask).sum() == 1, "REGIS layers should be consequtive from top to bottom."
 
     layer_model_tophalf = layer_model_regis.sel(layer=top_regis_mask)
     layer_model_bothalf = layer_model_regis.sel(layer=~top_regis_mask)
 
     # Count in how many layers the REGISII layers need to be split if previously never combined (default)
     split_counts_regis_def = (
-        dfk.groupby(koppeltabel_header_regis, sort=False)[koppeltabel_header_regis]
-        .count()
-        .to_dict()
+        dfk.groupby(koppeltabel_header_regis, sort=False)[koppeltabel_header_regis].count().to_dict()
     )
     # New layer names for the split REGIS layers. If HLc is split in 6 layers,
     # HLc_1, HLc_2, ..., HLc_5 are created. HLc is renamed to HLc_6, as it has
     # the correct botm, and is therefore not considered new.
-    layer_names_regis_new = np.concatenate(
-        [
-            [f"{k}_{vi}" for vi in range(1, v)]
-            for k, v in split_counts_regis_def.items()
-            if v > 1
-        ]
-    )
+    layer_names_regis_new = np.concatenate([
+        [f"{k}_{vi}" for vi in range(1, v)] for k, v in split_counts_regis_def.items() if v > 1
+    ])
     # used for adjusting botm of split layers
     layer_names_regis_new_dict = {
-        k: [f"{k}_{vi}" for vi in range(1, v)]
-        for k, v in split_counts_regis_def.items()
-        if v > 1
+        k: [f"{k}_{vi}" for vi in range(1, v)] for k, v in split_counts_regis_def.items() if v > 1
     }
 
     # Count in how many layers the PWN layers need to be split if previously never combined
     split_counts_other_def = (
-        dfk.groupby(koppeltabel_header_other, sort=False)[koppeltabel_header_other]
-        .count()
-        .to_dict()
+        dfk.groupby(koppeltabel_header_other, sort=False)[koppeltabel_header_other].count().to_dict()
     )
-    layer_names_other_new = np.concatenate(
-        [
-            [f"{k}_{vi}" for vi in range(1, v)]
-            for k, v in split_counts_other_def.items()
-            if v > 1
-        ]
-    )
+    layer_names_other_new = np.concatenate([
+        [f"{k}_{vi}" for vi in range(1, v)] for k, v in split_counts_other_def.items() if v > 1
+    ])
     # used for adjusting botm of split layers
     layer_names_other_new_dict = {
-        k: [f"{k}_{vi}" for vi in range(1, v)]
-        for k, v in split_counts_other_def.items()
-        if v > 1
+        k: [f"{k}_{vi}" for vi in range(1, v)] for k, v in split_counts_other_def.items() if v > 1
     }
 
     # Split both layer models with evenly-split thickness
     layer_model_other_split = layer_model_other.sel(
         layer=np.concatenate([v * [k] for k, v in split_counts_other_def.items()])
     )
-    layer_model_other_split = layer_model_other_split.assign_coords(
-        layer=dfk["Regis_split"]
-    )
+    layer_model_other_split = layer_model_other_split.assign_coords(layer=dfk["Regis_split"])
     # Set botm of new layers to nan
     mask = dfk["Regis_split"][dfk["Pwn_split"].isin(layer_names_other_new)].values
     layer_model_other_split["botm"].loc[{"layer": mask}] = np.nan
@@ -381,9 +333,7 @@ def combine_two_layer_models(
 
     if layer_model_regis.layer.str.contains("_").any():
         # TODO: if previously combined layer_model needs to be split for a second time
-        split_counts_regis_cur = dict(
-            zip(*np.unique(basenames_regis, return_counts=True))
-        )
+        split_counts_regis_cur = dict(zip(*np.unique(basenames_regis, return_counts=True)))
         assert all(
             v == split_counts_regis_cur[k] for k, v in split_counts_regis_def.items()
         ), "Previously combined REGIS layers should be split in the same number of layers as before."
@@ -393,9 +343,7 @@ def combine_two_layer_models(
             layer=np.concatenate([v * [k] for k, v in split_counts_regis_def.items()])
         )
         # Set botm of new layers to nan
-        layer_model_top_split = layer_model_top_split.assign_coords(
-            layer=dfk["Regis_split"]
-        )
+        layer_model_top_split = layer_model_top_split.assign_coords(layer=dfk["Regis_split"])
         layer_model_top_split["botm"].loc[{"layer": layer_names_regis_new}] = np.nan
 
     # extrapolate thickness of split layers
@@ -413,9 +361,7 @@ def combine_two_layer_models(
         ),
         dim="layer",
     )
-    top_regis = elev_regis.isel(layer=slice(-1)).assign_coords(
-        layer=layer_model_regis.layer.values
-    )
+    top_regis = elev_regis.isel(layer=slice(-1)).assign_coords(layer=layer_model_regis.layer.values)
     elev_other = xr.concat(
         (
             layer_model_other["top"].expand_dims(layer=["mv"]),
@@ -423,9 +369,7 @@ def combine_two_layer_models(
         ),
         dim="layer",
     )
-    top_other = elev_other.isel(layer=slice(-1)).assign_coords(
-        layer=layer_model_other.layer.values
-    )
+    top_other = elev_other.isel(layer=slice(-1)).assign_coords(layer=layer_model_other.layer.values)
 
     """
     Connecting multiple PWN layers to one REGIS layer
@@ -446,9 +390,7 @@ def combine_two_layer_models(
     of the botm of the newly split REGIS layers.
     """
 
-    logger.info(
-        f"Adjusting the botm of the newly split REGIS layers: {layer_names_regis_new}"
-    )
+    logger.info(f"Adjusting the botm of the newly split REGIS layers: {layer_names_regis_new}")
 
     # Modifying layer_model_top_split["botm"] in place.
     botm_regis = layer_model_top_split["botm"].copy()
@@ -469,10 +411,9 @@ def combine_two_layer_models(
                 "data is provided and in the transition zone."
             )
             continue
-        else:
-            assert ~any(
-                i in layer_model_regis.layer.values for i in new_layers
-            ), "Previously combined REGIS layers should not be split for a second time."
+        assert ~any(
+            i in layer_model_regis.layer.values for i in new_layers
+        ), "Previously combined REGIS layers should not be split for a second time."
 
         logger.info(
             f"About to adjust the botm of the newly split REGIS layers: {new_layers}. "
@@ -498,10 +439,7 @@ def combine_two_layer_models(
             .sel(layer=layers_other)
             .min(dim="layer")
             .where(
-                layer_model_other["botm"]
-                .sel(layer=layers_other)
-                .min(dim="layer")
-                .notnull(),
+                layer_model_other["botm"].sel(layer=layers_other).min(dim="layer").notnull(),
                 layer_model_regis["botm"].sel(layer=name),
             ),
         )
@@ -551,14 +489,12 @@ def combine_two_layer_models(
             thick_ratio_other.loc[{"layer": layer, "icell2d": ~mask}] = qvalues
 
         # evenly fill up missing thick_ratio values. Same for all layers.
-        fillna = (
-            1 - thick_ratio_other.sum(dim="layer", skipna=True)
-        ) / thick_ratio_other.isnull().sum(dim="layer", skipna=True)
+        fillna = (1 - thick_ratio_other.sum(dim="layer", skipna=True)) / thick_ratio_other.isnull().sum(
+            dim="layer", skipna=True
+        )
         thick_ratio_other = thick_ratio_other.fillna(fillna)
 
-        botm_split = top_total - (thick_ratio_other * total_thickness_layers).cumsum(
-            dim="layer", skipna=False
-        )
+        botm_split = top_total - (thick_ratio_other * total_thickness_layers).cumsum(dim="layer", skipna=False)
         botm_regis.loc[{"layer": layers}] = botm_split
 
     """
@@ -598,9 +534,7 @@ def combine_two_layer_models(
         )
 
         # thick ratios of regis layers that need to be extrapolated into the areas of the other layers
-        total_thickness_layers_regis = thick_regis_top_split.sel(layer=layers).sum(
-            dim="layer", skipna=False
-        )
+        total_thickness_layers_regis = thick_regis_top_split.sel(layer=layers).sum(dim="layer", skipna=False)
         thick_ratio_regis = xr.where(
             total_thickness_layers_regis != 0.0,
             thick_regis_top_split.sel(layer=layers) / total_thickness_layers_regis,
@@ -628,13 +562,9 @@ def combine_two_layer_models(
             top_total,
         )
         total_thickness_layers = top_total - botm_total
-        assert (
-            total_thickness_layers.fillna(0.0) >= 0.0
-        ).all(), "Total thickness of layers should be positive"
+        assert (total_thickness_layers.fillna(0.0) >= 0.0).all(), "Total thickness of layers should be positive"
 
-        botm_split = top_total - (thick_ratio_regis * total_thickness_layers).cumsum(
-            dim="layer", skipna=False
-        )
+        botm_split = top_total - (thick_ratio_regis * total_thickness_layers).cumsum(dim="layer", skipna=False)
         botm_other.loc[{"layer": layers}] = botm_split
 
     """Merge the two layer models"""
@@ -664,28 +594,18 @@ def combine_two_layer_models(
         },
     )
 
-    isadjusted_botm_regis = (
-        dfk["Regis II v2.2"].isin(list(layer_names_regis_new_dict.keys())).values
-    )
-    layer_model_top["botm"].loc[{"layer": isadjusted_botm_regis}] = botm_regis.loc[
-        {"layer": isadjusted_botm_regis}
-    ]
+    isadjusted_botm_regis = dfk["Regis II v2.2"].isin(list(layer_names_regis_new_dict.keys())).values
+    layer_model_top["botm"].loc[{"layer": isadjusted_botm_regis}] = botm_regis.loc[{"layer": isadjusted_botm_regis}]
 
-    isadjusted_botm_other = (
-        dfk["ASSUMPTION1"].isin(list(layer_names_other_new_dict.keys())).values
-    )
-    layer_model_top["botm"].loc[{"layer": isadjusted_botm_other}] = botm_other.loc[
-        {"layer": isadjusted_botm_other}
-    ]
+    isadjusted_botm_other = dfk["ASSUMPTION1"].isin(list(layer_names_other_new_dict.keys())).values
+    layer_model_top["botm"].loc[{"layer": isadjusted_botm_other}] = botm_other.loc[{"layer": isadjusted_botm_other}]
 
     # introduce transition of layers
     if transition_model is not None:
-        logger.info(
-            "Linear interpolation of transition region inbetween the two layer models"
+        logger.info("Linear interpolation of transition region inbetween the two layer models")
+        transition_model_split = transition_model.sel(layer=dfk[koppeltabel_header_other].values).assign_coords(
+            layer=dfk["Regis_split"].values
         )
-        transition_model_split = transition_model.sel(
-            layer=dfk[koppeltabel_header_other].values
-        ).assign_coords(layer=dfk["Regis_split"].values)
 
         for key in ["botm", "kh", "kv"]:
             var = layer_model_top[key]
@@ -761,15 +681,9 @@ def get_mensink_layer_model(ds_pwn_data, fix_min_layer_thickness=True):
     layer_model_mensink = xr.Dataset(
         {
             "top": ds_pwn_data["top"],
-            "botm": get_mensink_botm(
-                ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness
-            ),
-            "kh": get_mensink_kh(
-                ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness
-            ),
-            "kv": get_mensink_kv(
-                ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness
-            ),
+            "botm": get_mensink_botm(ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness),
+            "kh": get_mensink_kh(ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness),
+            "kv": get_mensink_kv(ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness),
         },
         coords={"layer": list(translate_triwaco_names_to_index.keys())},
         attrs={
@@ -824,9 +738,7 @@ def get_bergen_layer_model(ds_pwn_data, fix_min_layer_thickness=True):
     layer_model_bergen = xr.Dataset(
         {
             "top": ds_pwn_data["top"],
-            "botm": get_bergen_botm(
-                ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness
-            ),
+            "botm": get_bergen_botm(ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness),
             "kh": get_bergen_kh(ds_pwn_data),
             "kv": get_bergen_kv(ds_pwn_data),
         },
@@ -857,9 +769,7 @@ def get_bergen_layer_model(ds_pwn_data, fix_min_layer_thickness=True):
     )
 
 
-def get_bergen_thickness(
-    data, mask=False, transition=False, fix_min_layer_thickness=True
-):
+def get_bergen_thickness(data, mask=False, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the thickness of layers in a given dataset.
 
@@ -935,20 +845,17 @@ def get_bergen_thickness(
 
     if mask:
         return ~np.isnan(out)
-    elif transition:
+    if transition:
         mask = get_bergen_thickness(data, mask=True, transition=False)
         transition = np.isnan(out)
         check = mask.astype(int) + transition.astype(int)
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
         return transition
-    else:
-        out = out.where(~np.isclose(out, 0.0), other=0.0)
+    out = out.where(~np.isclose(out, 0.0), other=0.0)
 
-        if (out < 0.0).any():
-            logger.warning(
-                "Botm Bergen is not monotonically decreasing. Resulting in negative conductivity values."
-            )
-        return out
+    if (out < 0.0).any():
+        logger.warning("Botm Bergen is not monotonically decreasing. Resulting in negative conductivity values.")
+    return out
 
 
 def get_bergen_kh(data, mask=False, anisotropy=5.0, transition=False):
@@ -1022,12 +929,14 @@ def get_bergen_kv(data, mask=False, anisotropy=5.0, transition=False):
     """
     Calculate the hydraulic conductivity (KV) for different aquifers and aquitards.
 
-    Parameters:
+    Parameters
+    ----------
         data (xarray.Dataset): Dataset containing the necessary variables for calculation.
         mask (bool, optional): Flag indicating whether to apply a mask to the data. Defaults to False.
         anisotropy (float, optional): Anisotropy factor for adjusting the hydraulic conductivity. Defaults to 5.0.
 
-    Returns:
+    Returns
+    -------
         xarray.DataArray: Array containing the calculated hydraulic conductivity values for each layer.
 
     Example:
@@ -1111,47 +1020,37 @@ def get_bergen_botm(data, mask=False, transition=False, fix_min_layer_thickness=
 
     if mask:
         return ~np.isnan(out).transpose("layer", "icell2d")
-    elif transition:
+    if transition:
         mask = get_bergen_botm(data, mask=True, transition=False)
         transition = np.isnan(out)
         check = mask.astype(int) + transition.astype(int)
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
         return transition.transpose("layer", "icell2d")
-    else:
-        if "top" in data.data_vars:
-            out = xr.concat((data["top"], out), dim="layer")
+    if "top" in data.data_vars:
+        out = xr.concat((data["top"], out), dim="layer")
 
-        # Use ffill here to fill the nan's with the previous layer. Layer thickness is zero for non existing layers
-        out = out.ffill(dim="layer")
+    # Use ffill here to fill the nan's with the previous layer. Layer thickness is zero for non existing layers
+    out = out.ffill(dim="layer")
 
-        thick = -out.diff(dim="layer")
-        thick = thick.where(~np.isclose(thick, 0.0), other=0.0)
+    thick = -out.diff(dim="layer")
+    thick = thick.where(~np.isclose(thick, 0.0), other=0.0)
 
-        if (thick < 0.0).sum() != 0:
-            is_err = (thick < 0.0).sum(axis=thick.dims.index("icell2d"))
-            is_val = (thick >= 0.0).sum(axis=thick.dims.index("icell2d"))
-            err_msg = {
-                f"layer{i}": f"{e * 100 / (e + v):.0f}%"
-                for i, (e, v) in enumerate(zip(is_err, is_val))
-            }
-            logger.warning(f"Botm is not monotonically decreasing.: {err_msg}.")
+    if (thick < 0.0).sum() != 0:
+        is_err = (thick < 0.0).sum(axis=thick.dims.index("icell2d"))
+        is_val = (thick >= 0.0).sum(axis=thick.dims.index("icell2d"))
+        err_msg = {f"layer{i}": f"{e * 100 / (e + v):.0f}%" for i, (e, v) in enumerate(zip(is_err, is_val))}
+        logger.warning(f"Botm is not monotonically decreasing.: {err_msg}.")
 
-            if fix_min_layer_thickness:
-                logger.warning(
-                    "Fixing monotonically decreasing botm's and assume higher layers better represent reality."
-                )
-                out.values = np.minimum.accumulate(
-                    out.values, axis=out.dims.index("layer")
-                )
-                if "top" in data.data_vars:
-                    out = out.isel(layer=slice(1, None))
+        if fix_min_layer_thickness:
+            logger.warning("Fixing monotonically decreasing botm's and assume higher layers better represent reality.")
+            out.values = np.minimum.accumulate(out.values, axis=out.dims.index("layer"))
+            if "top" in data.data_vars:
+                out = out.isel(layer=slice(1, None))
 
-        return out.transpose("layer", "icell2d")
+    return out.transpose("layer", "icell2d")
 
 
-def get_mensink_thickness(
-    data, mask=False, transition=False, fix_min_layer_thickness=True
-):
+def get_mensink_thickness(data, mask=False, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the thickness of layers in a given dataset.
 
@@ -1227,23 +1126,20 @@ def get_mensink_thickness(
 
     if mask:
         return ~np.isnan(out)
-    elif transition:
+    if transition:
         mask = get_mensink_thickness(data, mask=True, transition=False)
         transition = np.isnan(out)
         check = mask.astype(int) + transition.astype(int)
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
         return transition
-    else:
-        out = out.where(~np.isclose(out, 0.0), other=0.0)
+    out = out.where(~np.isclose(out, 0.0), other=0.0)
 
-        if (out < 0.0).any():
-            logger.warning("Botm is not monotonically decreasing.")
-        return out
+    if (out < 0.0).any():
+        logger.warning("Botm is not monotonically decreasing.")
+    return out
 
 
-def get_mensink_kh(
-    data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True
-):
+def get_mensink_kh(data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the hydraulic conductivity (kh) based on the given data.
 
@@ -1264,7 +1160,6 @@ def get_mensink_kh(
         The calculated hydraulic conductivity.
 
     """
-
     thickness = get_mensink_thickness(
         data,
         mask=mask,
@@ -1325,15 +1220,9 @@ def get_mensink_kh(
         + 0.5 * a[n("s12kd")] * (a[n("ms12kd")] == 2)
         + 3 * a[n("s12kd")] * (a[n("ms12kd")] == 3)
     ) / b.isel(layer=3)
-    s13k = a[n("s13kd")] * (a[n("ms13kd")] == 1) + 1.12 * a[n("s13kd")] * (
-        a[n("ms13kd")] == 2
-    ) / b.isel(layer=5)
-    s21k = a[n("s21kd")] * (a[n("ms21kd")] == 1) + a[n("s21kd")] * (
-        a[n("ms21kd")] == 2
-    ) / b.isel(layer=7)
-    s22k = 2 * a[n("s22kd")] * (a[n("ms22kd")] == 1) + a[n("s22kd")] * (
-        a[n("ms22kd")] == 1
-    ) / b.isel(layer=9)
+    s13k = a[n("s13kd")] * (a[n("ms13kd")] == 1) + 1.12 * a[n("s13kd")] * (a[n("ms13kd")] == 2) / b.isel(layer=5)
+    s21k = a[n("s21kd")] * (a[n("ms21kd")] == 1) + a[n("s21kd")] * (a[n("ms21kd")] == 2) / b.isel(layer=7)
+    s22k = 2 * a[n("s22kd")] * (a[n("ms22kd")] == 1) + a[n("s22kd")] * (a[n("ms22kd")] == 1) / b.isel(layer=9)
 
     out.loc[{"layer": 3}] = out.loc[{"layer": 3}].where(np.isnan(s12k), other=s12k)
     out.loc[{"layer": 5}] = out.loc[{"layer": 5}].where(np.isnan(s13k), other=s13k)
@@ -1342,31 +1231,31 @@ def get_mensink_kh(
 
     if mask:
         return ~np.isnan(out)
-    elif transition:
+    if transition:
         mask = get_mensink_kh(data, mask=True, transition=False)
         transition = np.isnan(out)
         check = mask.astype(int) + transition.astype(int)
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
         return transition
-    else:
-        return out
+    return out
 
 
-def get_mensink_kv(
-    data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True
-):
+def get_mensink_kv(data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the hydraulic conductivity (KV) for different aquifers and aquitards.
 
-    Parameters:
+    Parameters
+    ----------
         data (xarray.Dataset): Dataset containing the necessary variables for calculation.
         mask (bool, optional): Flag indicating whether to apply a mask to the data. Defaults to False.
         anisotropy (float, optional): Anisotropy factor for adjusting the hydraulic conductivity. Defaults to 5.0.
 
-    Returns:
+    Returns
+    -------
         xarray.DataArray: Array containing the calculated hydraulic conductivity values for each layer.
 
-    Notes:
+    Notes
+    -----
         - The function expects the input dataset to contain the following variables:
             - KW11, KW12, KW13, KW21, KW22, KW31, KW32: Hydraulic conductivity values for aquifers.
             - C11AREA, C12AREA, C13AREA, C21AREA, C22AREA, C31AREA, C32AREA: Areas of aquitards corresponding to each aquifer.
@@ -1436,14 +1325,13 @@ def get_mensink_kv(
 
     if mask:
         return ~np.isnan(out)
-    elif transition:
+    if transition:
         mask = get_mensink_kv(data, mask=True, transition=False)
         transition = np.isnan(out)
         check = mask.astype(int) + transition.astype(int)
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
         return transition
-    else:
-        return out
+    return out
 
 
 def get_mensink_botm(data, mask=False, transition=False, fix_min_layer_thickness=True):
@@ -1503,39 +1391,31 @@ def get_mensink_botm(data, mask=False, transition=False, fix_min_layer_thickness
 
     if mask:
         return ~np.isnan(out).transpose("layer", "icell2d")
-    elif transition:
+    if transition:
         mask = get_mensink_botm(data, mask=True, transition=False)
         transition = np.isnan(out)
         check = mask.astype(int) + transition.astype(int)
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
         return transition.transpose("layer", "icell2d")
-    else:
-        if "top" in data.data_vars:
-            out = xr.concat((data["top"], out), dim="layer")
+    if "top" in data.data_vars:
+        out = xr.concat((data["top"], out), dim="layer")
 
-        # Use ffill here to fill the nan's with the previous layer. Layer thickness is zero for non existing layers
-        out = out.ffill(dim="layer")
+    # Use ffill here to fill the nan's with the previous layer. Layer thickness is zero for non existing layers
+    out = out.ffill(dim="layer")
 
-        thick = -out.diff(dim="layer")
-        thick = thick.where(~np.isclose(thick, 0.0), other=0.0)
+    thick = -out.diff(dim="layer")
+    thick = thick.where(~np.isclose(thick, 0.0), other=0.0)
 
-        if (thick < 0.0).sum() != 0:
-            is_err = (thick < 0.0).sum(axis=thick.dims.index("icell2d"))
-            is_val = (thick >= 0.0).sum(axis=thick.dims.index("icell2d"))
-            err_msg = {
-                f"layer{i}": f"{e * 100 / (e + v):.0f}%"
-                for i, (e, v) in enumerate(zip(is_err, is_val))
-            }
-            logger.warning(f"Botm is not monotonically decreasing.: {err_msg}.")
+    if (thick < 0.0).sum() != 0:
+        is_err = (thick < 0.0).sum(axis=thick.dims.index("icell2d"))
+        is_val = (thick >= 0.0).sum(axis=thick.dims.index("icell2d"))
+        err_msg = {f"layer{i}": f"{e * 100 / (e + v):.0f}%" for i, (e, v) in enumerate(zip(is_err, is_val))}
+        logger.warning(f"Botm is not monotonically decreasing.: {err_msg}.")
 
-            if fix_min_layer_thickness:
-                logger.warning(
-                    "Fixing monotonically decreasing botm's and assume higher layers better represent reality."
-                )
-                out.values = np.minimum.accumulate(
-                    out.values, axis=out.dims.index("layer")
-                )
-                if "top" in data.data_vars:
-                    out = out.isel(layer=slice(1, None))
+        if fix_min_layer_thickness:
+            logger.warning("Fixing monotonically decreasing botm's and assume higher layers better represent reality.")
+            out.values = np.minimum.accumulate(out.values, axis=out.dims.index("layer"))
+            if "top" in data.data_vars:
+                out = out.isel(layer=slice(1, None))
 
-        return out.transpose("layer", "icell2d")
+    return out.transpose("layer", "icell2d")

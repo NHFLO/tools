@@ -11,19 +11,16 @@ import numpy as np
 import pandas as pd
 import scipy
 import xarray as xr
+from nhflotools.pwnlayers import triwaco
 from nlmod import cache
 from numpy.lib.recfunctions import append_fields
 from shapely.geometry import Point
 from tqdm import tqdm
 
-from nhflotools.pwnlayers import triwaco
-
 logger = logging.getLogger(__name__)
 
 
-def geodataframe_to_grid(
-    gdf, mgrid=None, grid_ix=None, keepcols=None, progressbar=False
-):
+def geodataframe_to_grid(gdf, mgrid=None, grid_ix=None, keepcols=None, progressbar=False):
     if grid_ix is None and mgrid is not None:
         grid_ix = flopy.utils.GridIntersect(mgrid, method="vertex")
     elif grid_ix is None and mgrid is None:
@@ -31,9 +28,7 @@ def geodataframe_to_grid(
 
     reclist = []
 
-    for _, row in (
-        tqdm(gdf.iterrows(), total=gdf.index.size) if progressbar else gdf.iterrows()
-    ):
+    for _, row in tqdm(gdf.iterrows(), total=gdf.index.size) if progressbar else gdf.iterrows():
         ishp = row.geometry
 
         if not ishp.is_valid:
@@ -43,13 +38,8 @@ def geodataframe_to_grid(
 
         if keepcols is not None:
             dtypes = gdf.dtypes.loc[keepcols].to_list()
-            val_arrs = [
-                ival * np.ones(r.shape[0], dtype=idtype)
-                for ival, idtype in zip(row.loc[keepcols], dtypes)
-            ]
-            r = append_fields(
-                r, keepcols, val_arrs, dtypes, usemask=False, asrecarray=True
-            )
+            val_arrs = [ival * np.ones(r.shape[0], dtype=idtype) for ival, idtype in zip(row.loc[keepcols], dtypes)]
+            r = append_fields(r, keepcols, val_arrs, dtypes, usemask=False, asrecarray=True)
         if r.shape[0] > 0:
             reclist.append(r)
 
@@ -204,7 +194,6 @@ def compare_layer_models_top_view(
         number for each cell indicating the overlap between two layer models.
 
     """
-
     if ysel is None:
         ysel = ml_layer_ds1.y.data
     if xsel is None:
@@ -238,7 +227,7 @@ def compare_layer_models_top_view(
 
 
 def compare_top_bots(bot1, top1, bot2, top2):
-    """compare two layer models. For a visual explanation of the comparison
+    """Compare two layer models. For a visual explanation of the comparison
     see https://github.com/ArtesiaWater/nlmod/blob/dev/examples/06_compare_layermodels.ipynb
 
 
@@ -273,7 +262,6 @@ def compare_top_bots(bot1, top1, bot2, top2):
             12. nan (np.isnan(bot1, bot2, top1, top2).any())
 
     """
-
     compare = xr.zeros_like(top1)
 
     # 1: equal
@@ -331,7 +319,7 @@ def compare_top_bots(bot1, top1, bot2, top2):
 
 
 def add_regis_to_bottom_of_pwn(pwn_ds, regis_ds):
-    """extend the pwn model by using the regis model for the layers below
+    """Extend the pwn model by using the regis model for the layers below
     the pwn model.
 
 
@@ -369,7 +357,7 @@ def add_regis_to_bottom_of_pwn(pwn_ds, regis_ds):
             lname_regis.append(str(lay.values))
             new_layer = np.append(new_layer, lay_count)
             lay_count += 1
-            logger.info(f"adding regis layer {str(lay.values)}  to pwn_model layers")
+            logger.info(f"adding regis layer {lay.values!s}  to pwn_model layers")
 
     pwn_regis_ds = xr.Dataset(coords={"x": pwn_ds.x, "y": pwn_ds.y, "layer": new_layer})
 
@@ -394,12 +382,10 @@ def add_regis_to_bottom_of_pwn(pwn_ds, regis_ds):
         coords={"layer": new_layer, "x": pwn_ds.x, "y": pwn_ds.y},
     )
 
-    lname_pwn = [f"pwn_lay_{i+1}" for i in range(len(pwn_ds.layer))]
+    lname_pwn = [f"pwn_lay_{i + 1}" for i in range(len(pwn_ds.layer))]
     lnames_pwn_regis = lname_pwn + lname_regis
 
-    pwn_regis_ds["lnames"] = xr.DataArray(
-        lnames_pwn_regis, dims=("layer"), coords={"layer": new_layer}
-    )
+    pwn_regis_ds["lnames"] = xr.DataArray(lnames_pwn_regis, dims=("layer"), coords={"layer": new_layer})
 
     _ = [pwn_regis_ds.attrs.update({key: item}) for key, item in regis_ds.attrs.items()]
 
@@ -407,8 +393,7 @@ def add_regis_to_bottom_of_pwn(pwn_ds, regis_ds):
 
 
 def combine_layer_models_regis_pwn(pwn_ds, regis_ds, datadir=None, df_koppeltabel=None):
-    """combine model layers from regis and pwn using a 'koppeltabel'
-
+    """Combine model layers from regis and pwn using a 'koppeltabel'
 
     Parameters
     ----------
@@ -432,11 +417,8 @@ def combine_layer_models_regis_pwn(pwn_ds, regis_ds, datadir=None, df_koppeltabe
     pwn_regis_ds : xr.DataSet
         combined model
     """
-
     if df_koppeltabel is None:
-        fname_koppeltabel = os.path.join(
-            datadir, "pwn_modellagen", "combine_regis_pwn.csv"
-        )
+        fname_koppeltabel = os.path.join(datadir, "pwn_modellagen", "combine_regis_pwn.csv")
         df_koppeltabel = pd.read_csv(fname_koppeltabel, skiprows=1, index_col=4)
 
     pwn_regis_ds = xr.Dataset(
@@ -474,9 +456,7 @@ def combine_layer_models_regis_pwn(pwn_ds, regis_ds, datadir=None, df_koppeltabe
         logger.info(f"combine regis layer {regis_lay} with pwn layer {pwn_lay}")
 
         if regis_lay == pwn_lay:
-            raise ValueError(
-                f"invalid values encountered, regis layer is {regis_lay} and pwn layer is {pwn_lay}"
-            )
+            raise ValueError(f"invalid values encountered, regis layer is {regis_lay} and pwn layer is {pwn_lay}")
 
         if isinstance(regis_lay, str):
             bot[i] = regis_ds.botm.sel(layer=regis_lay)
@@ -546,7 +526,6 @@ def unzip_changed_files(zipname, dirname, check_time=True, check_size=False):
     check_size : bool, optional
         check if file size has changed, by default False
     """
-
     with zipfile.ZipFile(zipname) as zf:
         infolist = zf.infolist()
         for info in infolist:
@@ -566,7 +545,7 @@ def unzip_changed_files(zipname, dirname, check_time=True, check_size=False):
             else:
                 extract = True
             if extract:
-                logger.info("extracting {}".format(info.filename))
+                logger.info(f"extracting {info.filename}")
                 zf.extract(info.filename, dirname)
                 # set the correct modification time
                 # (which is the time of extraction by default)
@@ -575,7 +554,7 @@ def unzip_changed_files(zipname, dirname, check_time=True, check_size=False):
 
 
 def set_ds_grid(ds, extent, delr, delc, refined_extent=None):
-    """set the grid parameters of a model dataset.
+    """Set the grid parameters of a model dataset.
 
     Parameters
     ----------
@@ -598,46 +577,40 @@ def set_ds_grid(ds, extent, delr, delc, refined_extent=None):
 
     """
     if refined_extent is None:
-        xmid, ymid = nlmod.dims.get_xy_mid_structured(
-            extent, delr, delc, descending_y=True
-        )
+        xmid, ymid = nlmod.dims.get_xy_mid_structured(extent, delr, delc, descending_y=True)
         ds.attrs["delr"] = delr
         ds.attrs["delc"] = delc
         ds.assign_coords(coords={"x": xmid, "y": ymid})
         ds.attrs["gridtype"] = "structured"
     else:
         extent2, delr2, delc2 = refined_extent
-        xmid1, ymid1 = nlmod.dims.get_xy_mid_structured(
-            extent, delr, delc, descending_y=True
-        )
-        xmid2, ymid2 = nlmod.dims.get_xy_mid_structured(
-            *refined_extent, descending_y=True
-        )
-        xmid = np.concatenate(
-            [xmid1[xmid1 < extent2[0]], xmid2, xmid1[xmid1 > extent2[1]]]
-        )
-        ymid = np.concatenate(
-            [ymid1[ymid1 > extent2[3]], ymid2, ymid1[ymid1 < extent2[2]]]
-        )
+        xmid1, ymid1 = nlmod.dims.get_xy_mid_structured(extent, delr, delc, descending_y=True)
+        xmid2, ymid2 = nlmod.dims.get_xy_mid_structured(*refined_extent, descending_y=True)
+        xmid = np.concatenate([
+            xmid1[xmid1 < extent2[0]],
+            xmid2,
+            xmid1[xmid1 > extent2[1]],
+        ])
+        ymid = np.concatenate([
+            ymid1[ymid1 > extent2[3]],
+            ymid2,
+            ymid1[ymid1 < extent2[2]],
+        ])
 
         delr = np.diff(
-            np.hstack(
-                (
-                    np.arange(extent[0], extent2[0], delr),
-                    np.arange(extent2[0], extent2[1], delr2),
-                    np.arange(extent2[1], extent[1] + delr, delr),
-                )
-            )
+            np.hstack((
+                np.arange(extent[0], extent2[0], delr),
+                np.arange(extent2[0], extent2[1], delr2),
+                np.arange(extent2[1], extent[1] + delr, delr),
+            ))
         )
         delc = np.abs(
             np.diff(
-                np.hstack(
-                    (
-                        np.arange(extent[3], extent2[3], -delc),
-                        np.arange(extent2[3], extent2[2], -delc2),
-                        np.arange(extent2[2], extent[2] - delc, -delc),
-                    )
-                )
+                np.hstack((
+                    np.arange(extent[3], extent2[3], -delc),
+                    np.arange(extent2[3], extent2[2], -delc2),
+                    np.arange(extent2[2], extent[2] - delc, -delc),
+                ))
             )
         )
 
@@ -653,8 +626,7 @@ def set_ds_grid(ds, extent, delr, delc, refined_extent=None):
 
 @cache.cache_netcdf
 def _read_top_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
-    """read top of aquitards
-
+    """Read top of aquitards
 
     Parameters
     ----------
@@ -683,18 +655,12 @@ def _read_top_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
     ds_out = xr.Dataset()
 
     for name in ["TS11", "TS12", "TS13", "TS21", "TS22", "TS31", "TS32"]:
-        fname = os.path.join(
-            pathname, "laagopbouw", "Top_aquitard", "{}.shp".format(name)
-        )
+        fname = os.path.join(pathname, "laagopbouw", "Top_aquitard", f"{name}.shp")
         gdf = gpd.read_file(fname)
         gdf.geometry = gdf.buffer(0)
-        ds_out[name] = nlmod.dims.grid.gdf_to_da(
-            gdf, ds, column="VALUE", agg_method="area_weighted", ix=ix
-        )
+        ds_out[name] = nlmod.dims.grid.gdf_to_da(gdf, ds, column="VALUE", agg_method="area_weighted", ix=ix)
         ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
-        in_transition = nlmod.dims.grid.gdf_to_bool_da(
-            gdf, ds, ix=ix, buffer=length_transition
-        )
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
         ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
 
     return ds_out
@@ -702,7 +668,7 @@ def _read_top_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
 
 @cache.cache_netcdf
 def _read_thickness_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
-    """read thickness of aquitards
+    """Read thickness of aquitards
 
     Parameters
     ----------
@@ -732,19 +698,13 @@ def _read_thickness_of_aquitards(ds, pathname, length_transition=100.0, ix=None)
 
     # read thickness of aquitards
     for name in ["DS11", "DS12", "DS13", "DS21", "DS22", "DS31"]:
-        fname = os.path.join(
-            pathname, "laagopbouw", "Dikte_aquitard", "{}.shp".format(name)
-        )
+        fname = os.path.join(pathname, "laagopbouw", "Dikte_aquitard", f"{name}.shp")
 
         gdf = gpd.read_file(fname)
         gdf.geometry = gdf.buffer(0)
-        ds_out[name] = nlmod.dims.grid.gdf_to_da(
-            gdf, ds, column="VALUE", agg_method="area_weighted", ix=ix
-        )
+        ds_out[name] = nlmod.dims.grid.gdf_to_da(gdf, ds, column="VALUE", agg_method="area_weighted", ix=ix)
         ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
-        in_transition = nlmod.dims.grid.gdf_to_bool_da(
-            gdf, ds, ix=ix, buffer=length_transition
-        )
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
         ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
 
     return ds_out
@@ -752,7 +712,7 @@ def _read_thickness_of_aquitards(ds, pathname, length_transition=100.0, ix=None)
 
 @cache.cache_netcdf
 def _read_kd_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
-    """read kd of aquitards
+    """Read kd of aquitards
 
     Parameters
     ----------
@@ -780,17 +740,11 @@ def _read_kd_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
 
     # read kD-waarden of aquifers
     for name in ["s11kd", "s12kd", "s13kd", "s21kd", "s22kd", "s31kd", "s32kd"]:
-        fname = os.path.join(
-            pathname, "Bodemparams", "KDwaarden_aquitards", "{}.shp".format(name)
-        )
+        fname = os.path.join(pathname, "Bodemparams", "KDwaarden_aquitards", f"{name}.shp")
         gdf = gpd.read_file(fname)
-        ds_out[name] = nlmod.dims.grid.gdf_to_da(
-            gdf, ds, column="VALUE", agg_method="nearest"
-        )
+        ds_out[name] = nlmod.dims.grid.gdf_to_da(gdf, ds, column="VALUE", agg_method="nearest")
         ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
-        in_transition = nlmod.dims.grid.gdf_to_bool_da(
-            gdf, ds, ix=ix, buffer=length_transition
-        )
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
         ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
 
     return ds_out
@@ -798,7 +752,7 @@ def _read_kd_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
 
 @cache.cache_netcdf
 def _read_mask_of_aquifers(ds, pathname, length_transition=100.0, ix=None):
-    """read mask of aquifers
+    """Read mask of aquifers
 
     Parameters
     ----------
@@ -831,17 +785,13 @@ def _read_mask_of_aquifers(ds, pathname, length_transition=100.0, ix=None):
             pathname,
             "Bodemparams",
             "Maskers_kdwaarden_aquitards",
-            "masker_aquitard{}_kd.shp".format(name),
+            f"masker_aquitard{name}_kd.shp",
         )
         gdf = gpd.read_file(fname)
         gdf.geometry = gdf.buffer(0)
-        ds_out[key] = nlmod.dims.gdf_to_da(
-            gdf, ds, column="VALUE", agg_method="nearest", ix=ix
-        )
+        ds_out[key] = nlmod.dims.gdf_to_da(gdf, ds, column="VALUE", agg_method="nearest", ix=ix)
         ds_out[f"{key}_mask"] = ~np.isnan(ds_out[key])
-        in_transition = nlmod.dims.grid.gdf_to_bool_da(
-            gdf, ds, ix=ix, buffer=length_transition
-        )
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
         ds_out[f"{key}_transition"] = in_transition & ~ds_out[f"{key}_mask"]
 
     return ds_out
@@ -849,7 +799,7 @@ def _read_mask_of_aquifers(ds, pathname, length_transition=100.0, ix=None):
 
 @cache.cache_netcdf
 def _read_layer_kh(ds, pathname, length_transition=100.0, ix=None):
-    """read hydraulic conductivity of layers
+    """Read hydraulic conductivity of layers
 
     Parameters
     ----------
@@ -879,17 +829,11 @@ def _read_layer_kh(ds, pathname, length_transition=100.0, ix=None):
 
     # read hydraulic conductivity of layers
     for name in ["KW11", "KW12", "KW13", "KW21", "KW22", "KW31", "KW32"]:
-        fname = os.path.join(
-            pathname, "Bodemparams", "Kwaarden_aquifers", "{}.shp".format(name)
-        )
+        fname = os.path.join(pathname, "Bodemparams", "Kwaarden_aquifers", f"{name}.shp")
         gdf = gpd.read_file(fname)
-        ds_out[name] = nlmod.dims.gdf_to_da(
-            gdf, ds, column="VALUE", agg_method="area_weighted"
-        )
+        ds_out[name] = nlmod.dims.gdf_to_da(gdf, ds, column="VALUE", agg_method="area_weighted")
         ds_out[f"{name}_mask"] = ~np.isnan(ds_out[name])
-        in_transition = nlmod.dims.grid.gdf_to_bool_da(
-            gdf, ds, ix=ix, buffer=length_transition
-        )
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
         ds_out[f"{name}_transition"] = in_transition & ~ds_out[f"{name}_mask"]
 
     return ds_out
@@ -897,7 +841,7 @@ def _read_layer_kh(ds, pathname, length_transition=100.0, ix=None):
 
 @cache.cache_netcdf
 def _read_kv_area(ds, pathname, length_transition=100.0, ix=None):
-    """read vertical resistance of layers
+    """Read vertical resistance of layers
 
     Parameters
     ----------
@@ -934,9 +878,7 @@ def _read_kv_area(ds, pathname, length_transition=100.0, ix=None):
         "C31AREA",
         "C32AREA",
     ]:
-        fname = os.path.join(
-            pathname, "Bodemparams", "Cwaarden_aquitards", "{}.shp".format(name)
-        )
+        fname = os.path.join(pathname, "Bodemparams", "Cwaarden_aquitards", f"{name}.shp")
         gdf = gpd.read_file(fname)
         gdf.geometry = gdf.buffer(0)
 
@@ -945,10 +887,7 @@ def _read_kv_area(ds, pathname, length_transition=100.0, ix=None):
         if name == "C13AREA":
             gdf2 = gdf.copy()
             for i in [7, 8, 12, 13]:
-                gdf2.geometry = [
-                    geom.difference(gdf.loc[i, "geometry"])
-                    for geom in gdf.geometry.values
-                ]
+                gdf2.geometry = [geom.difference(gdf.loc[i, "geometry"]) for geom in gdf.geometry.values]
                 gdf2.loc[i, "geometry"] = gdf.loc[i, "geometry"]
             gdf = gdf2
         elif name == "C21AREA":
@@ -957,16 +896,11 @@ def _read_kv_area(ds, pathname, length_transition=100.0, ix=None):
         elif name == "C22AREA":
             gdf2 = gdf.copy()
             for i in [6, 8, 9]:
-                gdf2.geometry = [
-                    geom.difference(gdf.loc[i, "geometry"])
-                    for geom in gdf.geometry.values
-                ]
+                gdf2.geometry = [geom.difference(gdf.loc[i, "geometry"]) for geom in gdf.geometry.values]
                 gdf2.loc[i, "geometry"] = gdf.loc[i, "geometry"]
             gdf = gdf2
 
-        ds_out[name] = nlmod.dims.gdf_to_da(
-            gdf, ds, column="VALUE", agg_method="nearest", ix=ix
-        )
+        ds_out[name] = nlmod.dims.gdf_to_da(gdf, ds, column="VALUE", agg_method="nearest", ix=ix)
 
         nanmask = np.isnan(ds_out[name])
         if name == "C11AREA":
@@ -982,7 +916,7 @@ def _read_kv_area(ds, pathname, length_transition=100.0, ix=None):
 
 @cache.cache_netcdf
 def _read_topsysteem(ds, pathname):
-    """read topsysteem
+    """Read topsysteem
 
     Parameters
     ----------
@@ -1005,23 +939,17 @@ def _read_topsysteem(ds, pathname):
     # read surface level
     fname = os.path.join(pathname, "Topsyst", "mvpolder2007.shp")
     gdf = gpd.read_file(fname)
-    ds_out["mvpolder"] = nlmod.dims.gdf_to_da(
-        gdf, ds, column="VALUE", agg_method="nearest"
-    )
+    ds_out["mvpolder"] = nlmod.dims.gdf_to_da(gdf, ds, column="VALUE", agg_method="nearest")
 
     fname = os.path.join(pathname, "Topsyst", "MVdtm2007.shp")
     gdf = gpd.read_file(fname)
-    ds_out["MVdtm"] = nlmod.dims.gdf_to_da(
-        gdf, ds, column="VALUE", agg_method="nearest"
-    )
+    ds_out["MVdtm"] = nlmod.dims.gdf_to_da(gdf, ds, column="VALUE", agg_method="nearest")
     ds_out["mvDTM"] = ds_out["MVdtm"]  # both ways are used in expressions
 
     fname = os.path.join(pathname, "Topsyst", "gem_polderpeil2007.shp")
     gdf = gpd.read_file(fname)
     gdf.geometry = gdf.buffer(0)
-    ds_out["gempeil"] = nlmod.dims.gdf_to_da(
-        gdf, ds, column="VALUE", agg_method="area_weighted"
-    )
+    ds_out["gempeil"] = nlmod.dims.gdf_to_da(gdf, ds, column="VALUE", agg_method="area_weighted")
 
     # determine the top of the groundwater system
     top = ds_out["gempeil"].copy()
@@ -1032,22 +960,18 @@ def _read_topsysteem(ds, pathname):
     fname = os.path.join(pathname, "Topsyst", "codes_voor_typedrainage.shp")
     gdf = gpd.read_file(fname)
     gdf.geometry = gdf.buffer(0)
-    ds_out["codesoort"] = nlmod.dims.gdf_to_da(
-        gdf, ds, column="VALUE", agg_method="nearest"
-    )
+    ds_out["codesoort"] = nlmod.dims.gdf_to_da(gdf, ds, column="VALUE", agg_method="nearest")
 
     fname = os.path.join(pathname, "Topsyst", "diepte_landbouw_drains.shp")
     gdf = gpd.read_file(fname)
-    ds_out["draindiepte"] = nlmod.dims.gdf_to_da(
-        gdf, ds, column="VALUE", agg_method="nearest"
-    )
+    ds_out["draindiepte"] = nlmod.dims.gdf_to_da(gdf, ds, column="VALUE", agg_method="nearest")
 
     return ds_out
 
 
 @cache.cache_netcdf
 def _read_zout(ds, pathname2, m):
-    """read zout
+    """Read zout
 
     Parameters
     ----------
@@ -1074,13 +998,9 @@ def _read_zout(ds, pathname2, m):
     gdf.geometry = gdf.buffer(0)
     ds_out["zout"] = nlmod.dims.gdf_to_da(gdf, ds, column="VALUE", agg_method="nearest")
 
-    fname = os.path.join(
-        pathname2, "Zout", "Zout_definitie_dichtheidondergrensvlak.shp"
-    )
+    fname = os.path.join(pathname2, "Zout", "Zout_definitie_dichtheidondergrensvlak.shp")
     gdf = gpd.read_file(fname)
-    zoutdef_arr = nlmod.dims.interpolate_gdf_to_array(
-        gdf, m, field="VALUE", method="linear"
-    )
+    zoutdef_arr = nlmod.dims.interpolate_gdf_to_array(gdf, m, field="VALUE", method="linear")
     ds_out["ZOUTDEF"] = ("y", "x"), zoutdef_arr
 
     return ds_out
@@ -1088,7 +1008,7 @@ def _read_zout(ds, pathname2, m):
 
 @cache.cache_netcdf
 def _read_bodemparams(ds, pathname2):
-    """read bodemparams
+    """Read bodemparams
 
     Parameters
     ----------
@@ -1108,33 +1028,23 @@ def _read_bodemparams(ds, pathname2):
 
     ds_out = xr.Dataset()
 
-    fname = os.path.join(
-        pathname2, "Bodemparams", "Cwaarden_aquitards", "vlakborgebruiken.shp"
-    )
+    fname = os.path.join(pathname2, "Bodemparams", "Cwaarden_aquitards", "vlakborgebruiken.shp")
     gdf = gpd.read_file(fname)
-    ds_out["DWATBorGebruiken"] = nlmod.dims.gdf_to_da(
-        gdf, ds, column="VALUE", agg_method="nearest"
-    )
-    fname = os.path.join(
-        pathname2, "Bodemparams", "Cwaarden_aquitards", "DWAT_Boringen_Selectie.shp"
-    )
+    ds_out["DWATBorGebruiken"] = nlmod.dims.gdf_to_da(gdf, ds, column="VALUE", agg_method="nearest")
+    fname = os.path.join(pathname2, "Bodemparams", "Cwaarden_aquitards", "DWAT_Boringen_Selectie.shp")
 
     gdf = gpd.read_file(fname)
     mask = gdf["PAKKET"] == "s3.1"
-    ds_out["Bor_s3p1_C"] = nlmod.dims.gdf_to_da(
-        gdf.loc[mask], ds, column="CLAAG", agg_method="nearest"
-    )
+    ds_out["Bor_s3p1_C"] = nlmod.dims.gdf_to_da(gdf.loc[mask], ds, column="CLAAG", agg_method="nearest")
     mask = gdf["PAKKET"] == "w3.1"
-    ds_out["Bor_w3p1_C"] = nlmod.dims.gdf_to_da(
-        gdf.loc[mask], ds, column="KDLAAG", agg_method="nearest"
-    )
+    ds_out["Bor_w3p1_C"] = nlmod.dims.gdf_to_da(gdf.loc[mask], ds, column="KDLAAG", agg_method="nearest")
 
     return ds_out
 
 
 @cache.cache_netcdf
 def _read_fluzo(ds, datadir):
-    """read fluzo
+    """Read fluzo
 
     Parameters
     ----------
@@ -1159,9 +1069,7 @@ def _read_fluzo(ds, datadir):
     if datadir is None:
         fname = "data/extracted/SimBasis/_GrondwateraanvullingFLUZO/GWA20022015.ado"
     else:
-        fname = os.path.join(
-            datadir, "SimBasis/_GrondwateraanvullingFLUZO/GWA20022015.ado"
-        )
+        fname = os.path.join(datadir, "SimBasis/_GrondwateraanvullingFLUZO/GWA20022015.ado")
 
     ado = triwaco.read_ado(fname)
     # read grid
@@ -1173,15 +1081,13 @@ def _read_fluzo(ds, datadir):
     gdf = triwaco.get_node_gdf(grid, extent=ds.extent)
     gdf["GWA20022015"] = ado["GWA20022015"][gdf.index]
     gdf.geometry = gdf.buffer(0)
-    ds_out["GWA20022015"] = nlmod.dims.gdf_to_da(
-        gdf, ds, column="GWA20022015", agg_method="area_weighted"
-    )
+    ds_out["GWA20022015"] = nlmod.dims.gdf_to_da(gdf, ds, column="GWA20022015", agg_method="area_weighted")
 
     return ds_out
 
 
 def evaluate_expressions_from_inifile(ini_fname, ds):
-    """evaluatie expressions in an inifile using the variables in an xarray
+    """Evaluatie expressions in an inifile using the variables in an xarray
     Dataset.
 
 
@@ -1219,9 +1125,7 @@ def evaluate_expressions_from_inifile(ini_fname, ds):
         else:
             for parameter in config["Parameters"]:
                 if config["Parameters"][parameter].split(",")[5] == "Expression":
-                    expression = "{}={}".format(
-                        parameter, config["Expressions"][parameter]
-                    )
+                    expression = "{}={}".format(parameter, config["Expressions"][parameter])
                     evaluate_expression(expression, ds)
 
 
@@ -1251,7 +1155,7 @@ def evaluate_expression(expression, ds):
         if is_number(var):
             return var
         # the data is stored in a model dataset
-        return 'ds["{}"]'.format(var.strip())
+        return f'ds["{var.strip()}"]'
 
     cmd = ""
     var = ""
@@ -1270,18 +1174,18 @@ def evaluate_expression(expression, ds):
         for i in range(ind - 1, -1, -1):
             if cmd[i] in ["(", ")", "+", "-", "*", "/", ",", "&"]:
                 break
-        cmd = "{}({}".format(cmd[: i + 1], cmd[i + 1 :])
+        cmd = f"{cmd[: i + 1]}({cmd[i + 1 :]}"
         # add a parethesis after
         for i in range(ind + 3, len(cmd)):
             if cmd[i] in ["(", ")", "+", "-", "*", "/", ",", "&"]:
                 break
-        cmd = "{}){}".format(cmd[:i], cmd[i:])
+        cmd = f"{cmd[:i]}){cmd[i:]}"
         cmd = cmd.replace("&&", ")&(")
     try:
         exec(cmd)
-        print("Expression succeeded: {}".format(cmd))
+        print(f"Expression succeeded: {cmd}")
     except KeyError as e:
-        print("Expression failed: {}".format(cmd))
+        print(f"Expression failed: {cmd}")
         print(type(e), e)
 
 
@@ -1317,7 +1221,7 @@ def shp2grid2(
     assert os.path.exists(fname), "file does not exist"
     if isinstance(fname, str):
         if verbose:
-            print("Reading file {}".format(fname))
+            print(f"Reading file {fname}")
         shp = gpd.read_file(fname)
     else:
         shp = fname
@@ -1340,7 +1244,7 @@ def shp2grid2(
 
     # LINESTRING
     elif shp.type.iloc[0] == "LineString":
-        raise (NotImplementedError())
+        raise (NotImplementedError)
 
     # POLYGON
     elif shp.type.iloc[0] in ["Polygon", "MultiPolygon"]:
@@ -1361,9 +1265,7 @@ def shp2grid2(
             for cid, group in tqdm(gr) if progressbar else gr:
                 for icol in fields:
                     if method == "weighted_average":
-                        area_weighted = (
-                            group.area * group.loc[:, icol]
-                        ).sum() / group.area.sum()
+                        area_weighted = (group.area * group.loc[:, icol]).sum() / group.area.sum()
                         aggdata.loc[[cid], icol] = area_weighted
                     elif method == "most_common":
                         most_common = group.area.idxmax()
@@ -1403,14 +1305,11 @@ def shp2grid2(
 
     if len(grid) == 1 and isinstance(grid, list):
         return grid[0]
-    else:
-        return grid
+    return grid
 
 
 def add_top_system_cell(layer, r, c, e, ci, cd, b, riv_spd, ghb_spd, drn_spd):
-    if (
-        np.isnan(b) or b < 100.0
-    ):  # when b is more than 100 the cell is turned of by the user
+    if np.isnan(b) or b < 100.0:  # when b is more than 100 the cell is turned of by the user
         # first the riv or ghb cells
         if not np.isnan(b):
             if e <= b:  # infiltration will only take place if Hp>BD
