@@ -81,7 +81,7 @@ def chd_ghb_from_major_surface_waters(ds, gwf, sea_stage=0.0, da_name="rws_oppwa
         bhead="sfw_stage",
         cond="sfw_cond",
         auxiliary=0.0,
-        filename=f"{model_name}.ghb_sfw",
+        filename=f"{ds.model_name}.ghb_sfw",
         pname="ghb1",
     )
 
@@ -96,21 +96,26 @@ def chd_ghb_from_major_surface_waters(ds, gwf, sea_stage=0.0, da_name="rws_oppwa
             filename=f"{model_name}.chd_sea",
             pname="chd",
         )
-        return ghb, chd
+        ts_sea = None
 
-    chd = nlmod.gwf.chd(
-        ds,
-        gwf,
-        mask="northsea",
-        head="sea_stage",
-        auxiliary=18_000.0,
-        filename=f"{model_name}.chd_sea",
-        pname="chd",
-    )
-    ts_sea = chd.ts.initialize(
-        filename="sea_lvl.ts",
-        time_series_namerecord=ts_sea_val,
-        interpolation_methodrecord="linear",
-        timeseries=sea_lvl_ts,
-    )
+    else:
+        chd = nlmod.gwf.chd(
+            ds,
+            gwf,
+            mask="northsea",
+            head="sea_stage",
+            auxiliary=18_000.0,
+            filename=f"{ds.model_name}.chd_sea",
+            pname="chd",
+        )
+        if chd is None:
+            # If all values are outside active grid cells
+            ts_sea = None
+        else:
+            ts_sea = chd.ts.initialize(
+                filename="sea_lvl.ts",
+                time_series_namerecord=ts_sea_val,
+                interpolation_methodrecord="linear",
+                timeseries=sea_lvl_ts,
+            )
     return ghb, chd, ts_sea
