@@ -106,7 +106,7 @@ def read_pwn_data2(
     return ds_out
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_bergen_basis_aquitards(
     ds,
     pathname=None,
@@ -223,7 +223,7 @@ def _read_bergen_basis_aquitards(
     return ds_out
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_bergen_c_aquitards(ds, pathname, length_transition=100.0, ix=None):
     """Read vertical resistance of layers
 
@@ -265,7 +265,7 @@ def _read_bergen_c_aquitards(ds, pathname, length_transition=100.0, ix=None):
     return ds_out
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_bergen_thickness_aquitards(
     ds,
     pathname=None,
@@ -380,7 +380,7 @@ def _read_bergen_thickness_aquitards(
     return ds_out
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_top_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
     """Read top of aquitards
 
@@ -422,7 +422,7 @@ def _read_top_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
     return ds_out
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_thickness_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
     """Read thickness of aquitards
 
@@ -466,7 +466,7 @@ def _read_thickness_of_aquitards(ds, pathname, length_transition=100.0, ix=None)
     return ds_out
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_kd_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
     """Read kd of aquitards
 
@@ -507,7 +507,7 @@ def _read_kd_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
     return ds_out
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_mask_of_aquifers(ds, pathname, length_transition=100.0, ix=None):
     """Read mask of aquifers
 
@@ -554,7 +554,7 @@ def _read_mask_of_aquifers(ds, pathname, length_transition=100.0, ix=None):
     return ds_out
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_layer_kh(ds, pathname, length_transition=100.0, ix=None):
     """Read hydraulic conductivity of layers
 
@@ -597,7 +597,7 @@ def _read_layer_kh(ds, pathname, length_transition=100.0, ix=None):
     return ds_out
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_kv_area(ds, pathname, length_transition=100.0, ix=None):
     """Read vertical resistance of layers
 
@@ -672,7 +672,7 @@ def _read_kv_area(ds, pathname, length_transition=100.0, ix=None):
     return ds_out
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_topsysteem(ds, pathname):
     """Read topsysteem
 

@@ -12,7 +12,7 @@ from .io import read_pwn_data2
 logger = logging.getLogger(__name__)
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf()
 def get_pwn_layer_model(
     ds_regis,
     data_path_mensink,
