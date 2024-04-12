@@ -1026,6 +1026,8 @@ def get_bergen_botm(data, mask=False, transition=False, fix_min_layer_thickness=
         check = mask.astype(int) + transition.astype(int)
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
         return transition.transpose("layer", "icell2d")
+
+    # Include the top with error checking. Exclude at the end.
     if "top" in data.data_vars:
         out = xr.concat((data["top"], out), dim="layer")
 
@@ -1044,8 +1046,9 @@ def get_bergen_botm(data, mask=False, transition=False, fix_min_layer_thickness=
         if fix_min_layer_thickness:
             logger.warning("Fixing monotonically decreasing botm's and assume higher layers better represent reality.")
             out.values = np.minimum.accumulate(out.values, axis=out.dims.index("layer"))
-            if "top" in data.data_vars:
-                out = out.isel(layer=slice(1, None))
+
+    if "top" in data.data_vars:
+        out = out.isel(layer=slice(1, None))
 
     return out.transpose("layer", "icell2d")
 
@@ -1415,7 +1418,8 @@ def get_mensink_botm(data, mask=False, transition=False, fix_min_layer_thickness
         if fix_min_layer_thickness:
             logger.warning("Fixing monotonically decreasing botm's and assume higher layers better represent reality.")
             out.values = np.minimum.accumulate(out.values, axis=out.dims.index("layer"))
-            if "top" in data.data_vars:
-                out = out.isel(layer=slice(1, None))
+            
+    if "top" in data.data_vars:
+        out = out.isel(layer=slice(1, None))
 
     return out.transpose("layer", "icell2d")
