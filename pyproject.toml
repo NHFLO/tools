@@ -24,14 +24,14 @@ readme = "README.md"
 license = {file = "LICENSE.txt"}
 requires-python = ">=3.9, <3.12"
 authors = [
+  {name = "Bas des Tombe", email = "bas.des.tombe@pwn.nl"},
   {name = "Onno Ebbens", email = "o.ebbens@artesia-water.nl"},
   {name = "Davíd Brakenhoff", email = "d.brakenhoff@artesia-water.nl"},
-  {name = "Bas des Tombe", email = "bas.des.tombe@pwn.nl"},
 ]
 maintainers = [
+  {name = "Bas des Tombe", email = "bas.des.tombe@pwn.nl"},
   {name = "Onno Ebbens", email = "o.ebbens@artesia-water.nl"},
   {name = "Davíd Brakenhoff", email = "d.brakenhoff@artesia-water.nl"},
-  {name = "Bas des Tombe", email = "bas.des.tombe@pwn.nl"},
 ]
 keywords = [
   "NHFLO",
@@ -40,13 +40,6 @@ classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: BSD License",
-    "Operating System :: Unix",
-    "Operating System :: POSIX",
-    "Operating System :: Microsoft :: Windows",
-    "Programming Language :: Python",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Topic :: Utilities",
 ]
@@ -70,13 +63,6 @@ dynamic = ["version"]
 dev = [
     "hatch",
     "ruff",
-    "isort",
-    "black",
-    "mypy",
-    "types-PyYAML",     # for pyyaml types
-    "types-requests",   # for requests types
-    "types-xmltodict",  # for xmltodict types
-    "pandas-stubs",     # for pandas types
     "pytest"
 ]
 
@@ -85,12 +71,12 @@ features = ["dev"]
 
 [tool.hatch.envs.default.scripts]
 lint = [
-  "ruff check src/ tests/",
-  "black --check src/ tests/",
-  "isort --check-only --diff src/ tests/",
-  "mypy src/",
+  "ruff check .",
 ]
-format = ["black src/ tests/", "isort src/ tests/", "ruff check --fix src/ tests/", "ruff format src/ tests/", "lint",]
+format = [
+  "ruff format .",
+  "ruff check --fix ."
+]
 test = ["pytest ./src/ ./tests/",]  # --doctest-modules
 fast-test = ["pytest ./tests/ -m \"not slow\"",]
 
@@ -108,54 +94,3 @@ testpaths = ["tests"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
-
-[tool.ruff]
-extend-include = ["*.ipynb"]
-# Exclude a variety of commonly ignored directories.
-exclude = [
-    ".bzr",
-    ".direnv",
-    ".eggs",
-    ".git",
-    ".git-rewrite",
-    ".hg",
-    ".ipynb_checkpoints",
-    ".mypy_cache",
-    ".nox",
-    ".pants.d",
-    ".pyenv",
-    ".pytest_cache",
-    ".pytype",
-    ".ruff_cache",
-    ".svn",
-    ".tox",
-    ".venv",
-    ".vscode",
-    "__pypackages__",
-    "_build",
-    "buck-out",
-    "build",
-    "dist",
-    "node_modules",
-    "site-packages",
-    "venv",
-]
-
-
-
-[tool.isort]
-py_version=39
-force_single_line = true
-known_first_party = ["nhflotools"]
-skip = [".gitignore", ".tox", ".venv"]
-src_paths = ["src", "tests"]
-line_length = 120
-
-[tool.black]
-line-length = 88
-target-version = ['py39', 'py310', 'py311']
-extend-exclude = ".venv"
-
-[tool.mypy]
-ignore_missing_imports = true  # Preferably false, but matplotlib, scipy and statsmodels are missing typing stubs
-python_version = "3.9"
