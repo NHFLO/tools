@@ -11,14 +11,43 @@ from .io import read_pwn_data2
 
 logger = logging.getLogger(__name__)
 
+translate_triwaco_bergen_names_to_index = {
+    "W11": 0,
+    "S11": 1,
+    "W12": 2,
+    "S12": 3,
+    "W13": 4,
+    "S13": 5,
+    "W21": 6,
+    "S21": 7,
+    "W22": 8,
+    "S22": 9,
+}
+translate_triwaco_mensink_names_to_index = {
+    "W11": 0,
+    "S11": 1,
+    "W12": 2,
+    "S12": 3,
+    "W13": 4,
+    "S13": 5,
+    "W21": 6,
+    "S21": 7,
+    "W22": 8,
+    "S22": 9,
+    "W31": 10,
+    "S31": 11,
+    "W32": 12,
+    "S32": 13,
+}
 
-@cache.cache_netcdf()
+
+@cache.cache_netcdf(coords_3d=True, datavars=["kh", "kv", "botm", "top"])
 def get_pwn_layer_model(
     ds_regis,
     data_path_mensink,
     data_path_bergen,
     fname_koppeltabel,
-    replace_top_with_ahn_key="ahn",
+    top=None,
     length_transition=100.0,
     fix_min_layer_thickness=True,
 ):
@@ -46,10 +75,12 @@ def get_pwn_layer_model(
         The path to the Bergen data directory.
     fname_koppeltabel : str
         The filename of the koppeltabel (translation table) CSV file.
-    replace_top_with_ahn_key : str, optional
-        The key to replace the top of the PWN layer model with the AHN. The default is None.
+    top : xarray DataArray, optional
+        The top of the model grid. The default is None in which case the top of REGIS is used.
     length_transition : float, optional
         The length of the transition zone between layer_model_regis and layer_model_other in meters. The default is 100.
+    fix_min_layer_thickness : bool, optional
+        Fix the minimum layer thickness. The default is True.
 
     Returns
     -------
@@ -66,15 +97,13 @@ def get_pwn_layer_model(
     }
 
     # Use AHN as top. Top of layer_model_regis is used in layer_model_mensink and bergen.
-    if replace_top_with_ahn_key is None:
-        layer_model_regis["top"] = ds_regis["top"]
-    else:
-        assert (
-            ds_regis[replace_top_with_ahn_key].notnull().any()
-        ), f"Variable {replace_top_with_ahn_key} should not contain nan values"
-        layer_model_regis["top"] = ds_regis[replace_top_with_ahn_key]
-        if fix_min_layer_thickness:
-            _set_fix_min_layer_thickness(layer_model_regis)
+    logger.info("Using top from input")
+    if top.isnull().any():
+        raise ValueError("Variable top should not contain nan values")
+    layer_model_regis["top"] = top
+
+    if fix_min_layer_thickness:
+        _fix_missings_botms_and_min_layer_thickness(layer_model_regis)
 
     # Get PWN layer models
     ds_pwn_data = read_pwn_data2(
@@ -84,10 +113,10 @@ def get_pwn_layer_model(
         length_transition=length_transition,
         cachedir=cachedir,
     )
-    layer_model_mensink, transition_model_mensink = get_mensink_layer_model(
+    layer_model_mensink, mask_model_mensink, transition_model_mensink = get_mensink_layer_model(
         ds_pwn_data=ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness
     )
-    layer_model_bergen, transition_model_bergen = get_bergen_layer_model(
+    layer_model_bergen, mask_model_bergen, transition_model_bergen = get_bergen_layer_model(
         ds_pwn_data=ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness
     )
     thick_layer_model_mensink = nlmod.dims.layers.calculate_thickness(layer_model_mensink)
@@ -103,16 +132,17 @@ def get_pwn_layer_model(
     df_koppeltabel = df_koppeltabel[~df_koppeltabel["ASSUMPTION1"].isna()]
 
     # Combine PWN layer model with REGIS layer model
-    layer_model_mensink_regis, _ = combine_two_layer_models(
+    layer_model_mensink_regis, cat_mensink_regis = combine_two_layer_models(
         df_koppeltabel,
         layer_model_regis,
         layer_model_mensink,
+        mask_model_mensink,
         transition_model_mensink,
         koppeltabel_header_regis="Regis II v2.2",
         koppeltabel_header_other="ASSUMPTION1",
     )
     if fix_min_layer_thickness:
-        _set_fix_min_layer_thickness(layer_model_mensink_regis)
+        _fix_missings_botms_and_min_layer_thickness(layer_model_mensink_regis)
     thick_layer_model_mensink_regis = nlmod.dims.layers.calculate_thickness(layer_model_mensink_regis)
     assert ~(thick_layer_model_mensink_regis < 0.0).any(), "Mensink_regis thickness of layers should be positive"
 
@@ -124,12 +154,13 @@ def get_pwn_layer_model(
         df_koppeltabel,
         layer_model_mensink_regis,
         layer_model_bergen,
+        mask_model_bergen,
         transition_model_bergen,
         koppeltabel_header_regis="Regis II v2.2",
         koppeltabel_header_other="ASSUMPTION1",
     )
     if fix_min_layer_thickness:
-        _set_fix_min_layer_thickness(layer_model_mensink_bergen_regis)
+        _fix_missings_botms_and_min_layer_thickness(layer_model_mensink_bergen_regis)
 
     # Remove inactive layers and set kh and kv of non-existing cells to default values
     layer_model_mensink_bergen_regis["kh"] = layer_model_mensink_bergen_regis.kh.where(
@@ -146,25 +177,129 @@ def get_pwn_layer_model(
         remove_nan_layers=True,
     )
 
-    # Merge the layer model with the dataset using right join
-    ds = ds_regis.merge(layer_model_active, join="right", compat="override")
+    return xr.Dataset(
+        data_vars={
+            "kh": layer_model_active["kh"],
+            "kv": layer_model_active["kv"],
+            "botm": layer_model_active["botm"],
+            "top": layer_model_active["top"],
+            "area": ds_regis["area"],
+            "xv": ds_regis["xv"],
+            "yv": ds_regis["yv"],
+            "icvert": ds_regis["icvert"],
+        },
+        coords={
+            "x": layer_model_active.coords["x"],
+            "y": layer_model_active.coords["y"],
+            "layer": layer_model_active.coords["layer"],
+        },
+        attrs=ds_regis.attrs,
+    )
 
-    return ds
+
+def get_top_from_ahn(
+    ds,
+    replace_surface_water_with_peil=True,
+    replace_northsea_with_constant=None,
+    method_elsewhere="nearest",
+    cachedir=None,
+):
+    """
+    Get top from AHN and fill the missing values with surface water levels or interpolation.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        Dataset containing the model grid.
+    replace_surface_water_with_peil : bool, optional
+        Replace missing values with peil. The default is True.
+    replace_northsea_with_constant : float, optional
+        Replace missing values with a constant. The default is None.
+    method_elsewhere : str, optional
+        Interpolation method. The default is "nearest".
+    cachedir : str, optional
+        Directory to cache the data. The default is None.
+
+    Returns
+    -------
+    top : xarray.DataArray
+        The top of the model grid.
+    """
+    if "ahn" not in ds:
+        raise ValueError("Dataset should contain the AHN data")
+
+    top = ds["ahn"].copy()
+
+    if replace_surface_water_with_peil:
+        rws_ds = nlmod.read.rws.get_surface_water(
+            ds, da_basename="rws_oppwater", cachedir=cachedir, cachename="rws_ds.nc"
+        )
+        fill_mask = np.logical_and(top.isnull(), np.isclose(rws_ds["rws_oppwater_area"], ds["area"]))
+        top.values = xr.where(fill_mask, rws_ds["rws_oppwater_stage"], top)
+
+    if replace_northsea_with_constant is not None:
+        isnorthsea = nlmod.read.rws.get_northsea(ds, cachedir=cachedir, cachename="sea_ds.nc")["northsea"]
+        fill_mask = np.logical_and(top.isnull(), isnorthsea)
+        top.values = xr.where(fill_mask, replace_northsea_with_constant, top)
+
+    # interpolate remainder
+    points = list(
+        zip(
+            top.y.sel(icell2d=top.notnull()).values,
+            top.x.sel(icell2d=top.notnull()).values,
+        )
+    )
+    values = top.sel(icell2d=top.notnull()).values
+    qpoints = list(
+        zip(
+            top.y.sel(icell2d=top.isnull()).values,
+            top.x.sel(icell2d=top.isnull()).values,
+        )
+    )
+    qvalues = griddata(points=points, values=values, xi=qpoints, method=method_elsewhere)
+    top.loc[{"icell2d": top.isnull()}] = qvalues
+    return top
 
 
-def _set_fix_min_layer_thickness(ds):
+def _fix_missings_botms_and_min_layer_thickness(ds):
+    """
+    Fix missing botms and ensure all layers have a positive thickness.
+
+    Parameters
+    ----------
+    ds : xarray Dataset
+        Dataset containing the layer model with top and botm.
+
+    Raises
+    ------
+    ValueError
+        If top contains nan values.
+    """
+    if ds["top"].isnull().any():
+        raise ValueError("Top should not contain nan values")
+
     out = xr.concat((ds["top"].expand_dims(dim={"layer": ["mv"]}, axis=0), ds["botm"]), dim="layer")
 
     # Use ffill here to fill the nan's with the previous layer. Layer thickness is zero for non existing layers
     out = out.ffill(dim="layer")
     out.values = np.minimum.accumulate(out.values, axis=out.dims.index("layer"))
-    ds["botm"].values = out.isel(layer=slice(1, None)).transpose("layer", "icell2d").values
+    topbotm_fixed = out.isel(layer=slice(1, None)).transpose("layer", "icell2d")
+
+    # inform
+    ncell, nisnull = ds["botm"].size, ds["botm"].isnull().sum()
+    nfixed = (~np.isclose(ds.botm, topbotm_fixed)).sum()
+
+    logger.info(
+        f"Fixed {nisnull / ncell * 100.0:.1f}% missing botms using downward fill. Shifted {(nfixed - nisnull) / ncell * 100.0:.1f}% botms to ensure all layers have a positive thickness, assuming more info is in the upper layer."
+    )
+    ds["botm"].values = topbotm_fixed.values
 
 
 def combine_two_layer_models(
     df_koppeltabel,
     layer_model_regis,
     layer_model_other,
+    mask_model_other,
     transition_model=None,
     koppeltabel_header_regis="Regis II v2.2",
     koppeltabel_header_other="ASSUMPTION1",
@@ -172,7 +307,8 @@ def combine_two_layer_models(
     """
     Combine the layer models of REGISII and PWN.
 
-    The values of the PWN layer model are used where the layer_model_other is not nan.
+    The values of the PWN layer model are used where the layer_model_other is not nan. Mask_model_other
+    is used to help set the values of the layer_model_other to nan where the layer model is not defined.
     The values of the REGISII layer model are used where the layer_model_other is nan
     and transition_model is False. The remaining values are where the
     transition_model is True. Those values are linearly interpolated from the
@@ -253,6 +389,7 @@ def combine_two_layer_models(
     assert all(
         var in layer_model_regis.variables for var in ["kh", "kv", "botm", "top"]
     ), "Variable 'kh', 'kv', 'botm', or 'top' is missing in layer_model_regis"
+    assert all(layer_model_regis[k].notnull().all() for k in ["kh", "kv", "botm", "top"])
     assert all(
         var in layer_model_other.variables for var in ["kh", "kv", "botm", "top"]
     ), "Variable 'kh', 'kv', 'botm', or 'top' is missing in layer_model_other"
@@ -263,6 +400,14 @@ def combine_two_layer_models(
         assert all([
             np.issubdtype(dtype, bool) for dtype in transition_model.dtypes.values()
         ]), "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
+
+    # Set all values of layer_model_other to nan where mask_model_other is False so that
+    # the values of layer_model_regis are used.
+    for var in ["kh", "kv", "botm"]:
+        layer_model_other[var] = layer_model_other[var].where(mask_model_other[var], np.nan)
+        assert (
+            layer_model_other[var].notnull() == mask_model_other[var]
+        ).all(), f"There were nan values present in {var} in cells that should be valid"
 
     assert (
         not dfk[koppeltabel_header_regis].str.contains("_").any()
@@ -662,22 +807,6 @@ def combine_two_layer_models(
 
 
 def get_mensink_layer_model(ds_pwn_data, fix_min_layer_thickness=True):
-    translate_triwaco_names_to_index = {
-        "W11": 0,
-        "S11": 1,
-        "W12": 2,
-        "S12": 3,
-        "W13": 4,
-        "S13": 5,
-        "W21": 6,
-        "S21": 7,
-        "W22": 8,
-        "S22": 9,
-        "W31": 10,
-        "S31": 11,
-        "W32": 12,
-        "S32": 13,
-    }
     layer_model_mensink = xr.Dataset(
         {
             "top": ds_pwn_data["top"],
@@ -685,11 +814,35 @@ def get_mensink_layer_model(ds_pwn_data, fix_min_layer_thickness=True):
             "kh": get_mensink_kh(ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness),
             "kv": get_mensink_kv(ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness),
         },
-        coords={"layer": list(translate_triwaco_names_to_index.keys())},
+        coords={"layer": list(translate_triwaco_mensink_names_to_index.keys())},
         attrs={
             "extent": ds_pwn_data.attrs["extent"],
             "gridtype": ds_pwn_data.attrs["gridtype"],
         },
+    )
+    mask_model_mensink = xr.Dataset(
+        {
+            "top": ds_pwn_data["top_mask"],
+            "botm": get_mensink_botm(
+                ds_pwn_data,
+                mask=True,
+                transition=False,
+                fix_min_layer_thickness=fix_min_layer_thickness,
+            ),
+            "kh": get_mensink_kh(
+                ds_pwn_data,
+                mask=True,
+                transition=False,
+                fix_min_layer_thickness=fix_min_layer_thickness,
+            ),
+            "kv": get_mensink_kv(
+                ds_pwn_data,
+                mask=True,
+                transition=False,
+                fix_min_layer_thickness=fix_min_layer_thickness,
+            ),
+        },
+        coords={"layer": list(translate_triwaco_mensink_names_to_index.keys())},
     )
     transition_model_mensink = xr.Dataset(
         {
@@ -713,28 +866,26 @@ def get_mensink_layer_model(ds_pwn_data, fix_min_layer_thickness=True):
                 fix_min_layer_thickness=fix_min_layer_thickness,
             ),
         },
-        coords={"layer": list(translate_triwaco_names_to_index.keys())},
+        coords={"layer": list(translate_triwaco_mensink_names_to_index.keys())},
     )
+
+    for var in ["kh", "kv", "botm"]:
+        layer_model_mensink[var] = layer_model_mensink[var].where(mask_model_mensink[var], np.nan)
+        assert (
+            layer_model_mensink[var].notnull() == mask_model_mensink[var]
+        ).all(), f"There were nan values present in {var} in cells that should be valid"
+        assert (
+            (mask_model_mensink[var] + transition_model_mensink[var]) <= 1
+        ).all(), f"There should be no overlap between mask and transition of {var}"
 
     return (
         layer_model_mensink,
+        mask_model_mensink,
         transition_model_mensink,
     )
 
 
 def get_bergen_layer_model(ds_pwn_data, fix_min_layer_thickness=True):
-    translate_triwaco_bergen_names_to_index = {
-        "W11": 0,
-        "S11": 1,
-        "W12": 2,
-        "S12": 3,
-        "W13": 4,
-        "S13": 5,
-        "W21": 6,
-        "S21": 7,
-        "W22": 8,
-        "S22": 9,
-    }
     layer_model_bergen = xr.Dataset(
         {
             "top": ds_pwn_data["top"],
@@ -747,6 +898,20 @@ def get_bergen_layer_model(ds_pwn_data, fix_min_layer_thickness=True):
             "extent": ds_pwn_data.attrs["extent"],
             "gridtype": ds_pwn_data.attrs["gridtype"],
         },
+    )
+    mask_model_bergen = xr.Dataset(
+        {
+            "top": ds_pwn_data["top_mask"],
+            "botm": get_bergen_botm(
+                ds_pwn_data,
+                mask=True,
+                transition=False,
+                fix_min_layer_thickness=fix_min_layer_thickness,
+            ),
+            "kh": get_bergen_kh(ds_pwn_data, mask=True, transition=False),
+            "kv": get_bergen_kv(ds_pwn_data, mask=True, transition=False),
+        },
+        coords={"layer": list(translate_triwaco_bergen_names_to_index.keys())},
     )
     transition_model_bergen = xr.Dataset(
         {
@@ -763,8 +928,18 @@ def get_bergen_layer_model(ds_pwn_data, fix_min_layer_thickness=True):
         coords={"layer": list(translate_triwaco_bergen_names_to_index.keys())},
     )
 
+    for var in ["kh", "kv", "botm"]:
+        layer_model_bergen[var] = layer_model_bergen[var].where(mask_model_bergen[var], np.nan)
+        assert (
+            layer_model_bergen[var].notnull() == mask_model_bergen[var]
+        ).all(), f"There were nan values present in {var} in cells that should be valid"
+        assert (
+            (mask_model_bergen[var] + transition_model_bergen[var]) <= 1
+        ).all(), f"There should be no overlap between mask and transition of {var}"
+
     return (
         layer_model_bergen,
+        mask_model_bergen,
         transition_model_bergen,
     )
 
@@ -837,7 +1012,7 @@ def get_bergen_thickness(data, mask=False, transition=False, fix_min_layer_thick
             return s
 
     if "top" in data.data_vars:
-        top_botm = xr.concat((a[n("top")], botm_nodata_isnan), dim="layer")
+        top_botm = xr.concat((a[n("top")].expand_dims(dim={"layer": ["mv"]}, axis=0), botm_nodata_isnan), dim="layer")
     else:
         top_botm = botm
 
@@ -895,7 +1070,7 @@ def get_bergen_kh(data, mask=False, anisotropy=5.0, transition=False):
     """
     if mask:
         # valid value if valid thickness and valid BER_C
-        out = get_bergen_thickness(data, mask=True, transition=False).rename("kh")
+        out = get_bergen_thickness(data, mask=True, transition=False).rename("kh").drop_vars("layer")
         out[dict(layer=1)] *= data["BER_C1A_mask"]
         out[dict(layer=3)] *= data["BER_C1B_mask"]
         out[dict(layer=5)] *= data["BER_C1C_mask"]
@@ -904,7 +1079,7 @@ def get_bergen_kh(data, mask=False, anisotropy=5.0, transition=False):
 
     elif transition:
         # Valid value if valid thickness or valid BER_C
-        out = get_bergen_thickness(data, mask=True, transition=False).rename("kh")
+        out = get_bergen_thickness(data, mask=True, transition=False).rename("kh").drop_vars("layer")
         out[dict(layer=1)] |= data["BER_C1A_mask"]
         out[dict(layer=3)] |= data["BER_C1B_mask"]
         out[dict(layer=5)] |= data["BER_C1C_mask"]
@@ -912,10 +1087,10 @@ def get_bergen_kh(data, mask=False, anisotropy=5.0, transition=False):
         out[dict(layer=9)] |= data["BER_C2_mask"]
 
     else:
-        thickness = get_bergen_thickness(data, mask=mask, transition=transition)
+        thickness = get_bergen_thickness(data, mask=mask, transition=transition).drop_vars("layer")
         out = xr.ones_like(thickness).rename("kh")
 
-        out[dict(layer=[0, 2, 4, 6, 8])] *= [8.0, 7.0, 12.0, 15.0, 20.0]
+        out[dict(layer=[0, 2, 4, 6, 8])] *= [[8.0], [7.0], [12.0], [15.0], [20.0]]
         out[dict(layer=1)] = thickness[dict(layer=1)] / data["BER_C1A"] * anisotropy
         out[dict(layer=3)] = thickness[dict(layer=3)] / data["BER_C1B"] * anisotropy
         out[dict(layer=5)] = thickness[dict(layer=5)] / data["BER_C1C"] * anisotropy
@@ -1016,41 +1191,23 @@ def get_bergen_botm(data, mask=False, transition=False, fix_min_layer_thickness=
             a[n("BAq2")],  # Base aquitard 21
         ),
         dim="layer",
-    )
+    ).transpose("layer", "icell2d")
+    out.coords["layer"] = list(translate_triwaco_bergen_names_to_index.keys())
 
     if mask:
-        return ~np.isnan(out).transpose("layer", "icell2d")
+        return ~np.isnan(out)
     if transition:
         mask = get_bergen_botm(data, mask=True, transition=False)
         transition = np.isnan(out)
         check = mask.astype(int) + transition.astype(int)
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
-        return transition.transpose("layer", "icell2d")
+        return transition
+    if fix_min_layer_thickness:
+        ds = xr.Dataset({"botm": out, "top": data["top"]})
+        _fix_missings_botms_and_min_layer_thickness(ds)
+        out = ds["botm"]
 
-    # Include the top with error checking. Exclude at the end.
-    if "top" in data.data_vars:
-        out = xr.concat((data["top"], out), dim="layer")
-
-    # Use ffill here to fill the nan's with the previous layer. Layer thickness is zero for non existing layers
-    out = out.ffill(dim="layer")
-
-    thick = -out.diff(dim="layer")
-    thick = thick.where(~np.isclose(thick, 0.0), other=0.0)
-
-    if (thick < 0.0).sum() != 0:
-        is_err = (thick < 0.0).sum(axis=thick.dims.index("icell2d"))
-        is_val = (thick >= 0.0).sum(axis=thick.dims.index("icell2d"))
-        err_msg = {f"layer{i}": f"{e * 100 / (e + v):.0f}%" for i, (e, v) in enumerate(zip(is_err, is_val))}
-        logger.warning(f"Botm is not monotonically decreasing.: {err_msg}.")
-
-        if fix_min_layer_thickness:
-            logger.warning("Fixing monotonically decreasing botm's and assume higher layers better represent reality.")
-            out.values = np.minimum.accumulate(out.values, axis=out.dims.index("layer"))
-
-    if "top" in data.data_vars:
-        out = out.isel(layer=slice(1, None))
-
-    return out.transpose("layer", "icell2d")
+    return out
 
 
 def get_mensink_thickness(data, mask=False, transition=False, fix_min_layer_thickness=True):
@@ -1121,7 +1278,7 @@ def get_mensink_thickness(data, mask=False, transition=False, fix_min_layer_thic
             return s
 
     if "top" in data.data_vars:
-        top_botm = xr.concat((a[n("top")], botm_nodata_isnan), dim="layer")
+        top_botm = xr.concat((a[n("top")].expand_dims(dim={"layer": ["mv"]}, axis=0), botm_nodata_isnan), dim="layer")
     else:
         top_botm = botm
 
@@ -1168,7 +1325,7 @@ def get_mensink_kh(data, mask=False, anisotropy=5.0, transition=False, fix_min_l
         mask=mask,
         transition=transition,
         fix_min_layer_thickness=fix_min_layer_thickness,
-    )
+    ).drop_vars("layer")
     assert not (thickness < 0.0).any(), "Negative thickness values are not allowed."
 
     if mask:
@@ -1276,7 +1433,7 @@ def get_mensink_kv(data, mask=False, anisotropy=5.0, transition=False, fix_min_l
         mask=mask,
         transition=transition,
         fix_min_layer_thickness=fix_min_layer_thickness,
-    )
+    ).drop_vars("layer")
 
     if mask:
         _a = data[[var for var in data.variables if var.endswith("_mask")]]
@@ -1351,7 +1508,7 @@ def get_mensink_botm(data, mask=False, transition=False, fix_min_layer_thickness
     out (xarray.DataArray): Array containing the bottom elevation of each layer.
     """
     if mask:
-        _a = data[[var for var in data.variables if var.endswith("_mask")]]
+        _a = data.copy()[[var for var in data.variables if var.endswith("_mask")]]
         a = _a.where(_a, np.nan)
 
         def n(s):
@@ -1359,14 +1516,17 @@ def get_mensink_botm(data, mask=False, transition=False, fix_min_layer_thickness
 
     elif transition:
         # note the ~ operator
-        _a = data[[var for var in data.variables if var.endswith("_transition")]]
+        _a = data.copy()[[var for var in data.variables if var.endswith("_transition")]]
         a = _a.where(~_a, np.nan).where(_a, 1.0)
 
         def n(s):
             return f"{s}_transition"
 
     else:
-        a = data
+        a = data.copy()
+
+        # for name in ["DS11", "DS12", "DS13", "DS21", "DS22", "DS31"]:
+        #     a[name] = a[name].fillna(0.0)
 
         def n(s):
             return s
@@ -1390,36 +1550,20 @@ def get_mensink_botm(data, mask=False, transition=False, fix_min_layer_thickness
             # a[n("TS32")] - 105., # Base aquifer 41
         ),
         dim="layer",
-    )
+    ).transpose("layer", "icell2d")
+    out.coords["layer"] = list(translate_triwaco_mensink_names_to_index.keys())
 
     if mask:
-        return ~np.isnan(out).transpose("layer", "icell2d")
+        return ~np.isnan(out)
     if transition:
         mask = get_mensink_botm(data, mask=True, transition=False)
         transition = np.isnan(out)
         check = mask.astype(int) + transition.astype(int)
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
-        return transition.transpose("layer", "icell2d")
-    if "top" in data.data_vars:
-        out = xr.concat((data["top"], out), dim="layer")
+        return transition
+    if fix_min_layer_thickness:
+        ds = xr.Dataset({"botm": out, "top": data["top"]})
+        _fix_missings_botms_and_min_layer_thickness(ds)
+        out = ds["botm"]
 
-    # Use ffill here to fill the nan's with the previous layer. Layer thickness is zero for non existing layers
-    out = out.ffill(dim="layer")
-
-    thick = -out.diff(dim="layer")
-    thick = thick.where(~np.isclose(thick, 0.0), other=0.0)
-
-    if (thick < 0.0).sum() != 0:
-        is_err = (thick < 0.0).sum(axis=thick.dims.index("icell2d"))
-        is_val = (thick >= 0.0).sum(axis=thick.dims.index("icell2d"))
-        err_msg = {f"layer{i}": f"{e * 100 / (e + v):.0f}%" for i, (e, v) in enumerate(zip(is_err, is_val))}
-        logger.warning(f"Botm is not monotonically decreasing.: {err_msg}.")
-
-        if fix_min_layer_thickness:
-            logger.warning("Fixing monotonically decreasing botm's and assume higher layers better represent reality.")
-            out.values = np.minimum.accumulate(out.values, axis=out.dims.index("layer"))
-            
-    if "top" in data.data_vars:
-        out = out.isel(layer=slice(1, None))
-
-    return out.transpose("layer", "icell2d")
+    return out
