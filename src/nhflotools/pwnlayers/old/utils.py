@@ -624,7 +624,7 @@ def set_ds_grid(ds, extent, delr, delc, refined_extent=None):
     return ds
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_top_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
     """Read top of aquitards
 
@@ -666,7 +666,7 @@ def _read_top_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
     return ds_out
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_thickness_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
     """Read thickness of aquitards
 
@@ -710,7 +710,7 @@ def _read_thickness_of_aquitards(ds, pathname, length_transition=100.0, ix=None)
     return ds_out
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_kd_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
     """Read kd of aquitards
 
@@ -750,7 +750,7 @@ def _read_kd_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
     return ds_out
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_mask_of_aquifers(ds, pathname, length_transition=100.0, ix=None):
     """Read mask of aquifers
 
@@ -797,7 +797,7 @@ def _read_mask_of_aquifers(ds, pathname, length_transition=100.0, ix=None):
     return ds_out
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_layer_kh(ds, pathname, length_transition=100.0, ix=None):
     """Read hydraulic conductivity of layers
 
@@ -839,7 +839,7 @@ def _read_layer_kh(ds, pathname, length_transition=100.0, ix=None):
     return ds_out
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_kv_area(ds, pathname, length_transition=100.0, ix=None):
     """Read vertical resistance of layers
 
@@ -914,7 +914,7 @@ def _read_kv_area(ds, pathname, length_transition=100.0, ix=None):
     return ds_out
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_topsysteem(ds, pathname):
     """Read topsysteem
 
@@ -969,7 +969,7 @@ def _read_topsysteem(ds, pathname):
     return ds_out
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_zout(ds, pathname2, m):
     """Read zout
 
@@ -1006,7 +1006,7 @@ def _read_zout(ds, pathname2, m):
     return ds_out
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_bodemparams(ds, pathname2):
     """Read bodemparams
 
@@ -1042,7 +1042,7 @@ def _read_bodemparams(ds, pathname2):
     return ds_out
 
 
-@cache.cache_netcdf
+@cache.cache_netcdf(coords_2d=True)
 def _read_fluzo(ds, datadir):
     """Read fluzo
 

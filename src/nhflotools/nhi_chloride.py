@@ -9,7 +9,7 @@ import xarray as xr
 logger = logging.getLogger(__name__)
 
 
-@nlmod.cache.cache_netcdf
+@nlmod.cache.cache_netcdf(coords_3d=True)
 def get_nhi_chloride_concentration(ds, data_path_nhi_chloride, interp_method="nearest"):
     """
     Get NHI chloride concentration and interpolate to modelgrid
