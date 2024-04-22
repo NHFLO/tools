@@ -93,7 +93,7 @@ def chd_ghb_from_major_surface_waters(ds, gwf, sea_stage=0.0, da_name="rws_oppwa
             mask="northsea",
             head=ts_sea_val,
             auxiliary=18_000.0,
-            filename=f"{model_name}.chd_sea",
+            filename=f"{ds.model_name}.chd_sea",
             pname="chd",
         )
         ts_sea = None
@@ -114,8 +114,8 @@ def chd_ghb_from_major_surface_waters(ds, gwf, sea_stage=0.0, da_name="rws_oppwa
         else:
             ts_sea = chd.ts.initialize(
                 filename="sea_lvl.ts",
-                time_series_namerecord=ts_sea_val,
+                time_series_namerecord="sea_stage",
                 interpolation_methodrecord="linear",
-                timeseries=sea_lvl_ts,
+                timeseries=sea_stage,
             )
     return ghb, chd, ts_sea
