@@ -2,26 +2,22 @@ import logging
 import os
 
 import nlmod
-import numpy as np
-import scipy.interpolate
 import xarray as xr
 
 logger = logging.getLogger(__name__)
 
 
 @nlmod.cache.cache_netcdf(coords_3d=True)
-def get_nhi_chloride_concentration(ds, data_path_nhi_chloride, interp_method="nearest"):
+def get_nhi_chloride_concentration(ds, data_path_nhi_chloride):
     """
-    Get NHI chloride concentration and interpolate to modelgrid
+    Get NHI chloride concentration and interpolate to modelgrid.
 
     Parameters
     ----------
     ds : xarray.Dataset
-        model dataset
+        Model dataset
     data_path_nhi_chloride : str
         file path to chloride data
-    interp_method : str, optional
-        interpolation method, by default "nearest"
 
     Returns
     -------
@@ -30,36 +26,29 @@ def get_nhi_chloride_concentration(ds, data_path_nhi_chloride, interp_method="ne
     """
     logger.info(f"Get NHI chloride concentration from {data_path_nhi_chloride} and interpolate to modelgrid")
     fp_cl = os.path.join(data_path_nhi_chloride, "chloride_p50.nc")
-    assert os.path.isfile(fp_cl), f"file {fp_cl} not found"
-    cl = xr.open_dataset(fp_cl)["chloride_p50"].swap_dims(dict(layer="z"))
 
-    # interpolate to modelgrid using nearest
-    zc = cl.bottom + (cl.top - cl.bottom) / 2
-    points = (
-        zc.values,
-        cl.y.values,
-        cl.x.values,
-    )
-    values = cl.transpose("z", "y", "x").values
+    with xr.open_dataset(fp_cl) as fh:
+        cl = fh["chloride_p50"].transpose("layer", "y", "x").load()
 
-    thickness = nlmod.layers.calculate_thickness(ds)
-    zci = ds.botm + thickness / 2
-    xi = np.vstack((
-        zci.values.flatten(),
-        zci.y.broadcast_like(zci).values.flatten(),
-        zci.x.broadcast_like(zci).values.flatten(),
-    )).T
+    # cli has x and y of ds but layer of cl
+    cli = cl.interp(x=ds.x, y=ds.y, method="nearest").drop_vars(["dy", "dx", "percentile"])
 
-    qi = scipy.interpolate.interpn(points, values, xi, method=interp_method, bounds_error=False).reshape(zci.shape)
-    attrs = {
+    da = nlmod.layers.aggregate_by_weighted_mean_to_ds(
+        ds, 
+        xr.Dataset({"p50": cli}), 
+        "p50")
+
+    da.values[0] = xr.where(ds["northsea"] == 1, 18_000, da.values[0])
+
+    for ilay in range(da.layer.size):
+        da.values[ilay] = nlmod.resample.fillnan_da(ds=ds, da=da.isel(layer=ilay), method="nearest")
+
+    da.attrs = {
         "description": "Chloride concentration interpolated from NHI data",
         "units": "mg/l",
     }
-    out = xr.DataArray(qi, coords=zci.coords, dims=zci.dims, attrs=attrs)
 
-    # interpolate NaNs with method nearest (for Noord Holland only 1e-4% of cells)
-    assert out.dims[0] == "layer", "Rewrite the following code with a transpose"
-    for ilay in range(out.shape[0]):
-        out.values[ilay] = nlmod.resample.fillnan_da(ds=ds, da=out.isel(layer=ilay), method="nearest")
+    if da.isnull().any():
+        logger.warning(f"Interpolated NHI chloride concentration contains NaNs")
 
-    return out
+    return da
