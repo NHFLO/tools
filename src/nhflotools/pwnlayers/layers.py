@@ -177,6 +177,9 @@ def get_pwn_layer_model(
         remove_nan_layers=True,
     )
 
+    # Get idomain based on layer thickness
+    idomain = nlmod.dims.layers.get_idomain(layer_model_active)
+
     return xr.Dataset(
         data_vars={
             "kh": layer_model_active["kh"],
@@ -187,6 +190,7 @@ def get_pwn_layer_model(
             "xv": ds_regis["xv"],
             "yv": ds_regis["yv"],
             "icvert": ds_regis["icvert"],
+            "idomain": idomain,
         },
         coords={
             "x": layer_model_active.coords["x"],
