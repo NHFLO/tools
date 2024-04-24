@@ -1,3 +1,4 @@
+"""Read PWN data from Mensink and Bergen."""
 import logging
 import os
 
@@ -6,6 +7,7 @@ import geopandas as gpd
 import nlmod
 import numpy as np
 import pykrige
+import shapely
 import xarray as xr
 from flopy.utils.gridintersect import GridIntersect
 from nlmod import cache
@@ -17,14 +19,15 @@ logger = logging.getLogger(__name__)
 
 
 def read_pwn_data2(
-    ds,
+    ds=None,
     datadir_mensink=None,
     datadir_bergen=None,
     length_transition=100.0,
-    parallel=True,
     cachedir=None,
+    *,
+    parallel=True,
 ):
-    """Reads model data from a directory.
+    """Read PWN data from Mensink and Bergen.
 
     Parameters
     ----------
@@ -36,11 +39,11 @@ def read_pwn_data2(
         directory with modeldata of bergen. The default is None.
     length_transition : float, optional
         length of transition zone, by default 100.
-    parallel : bool, optional
-        If True, much is computed in parallel but the logging is scrambled. The default is True.
     cachedir : str, optional
         cachedir used to cache files using the decorator
         nlmod.cache.cache_netcdf. The default is None.
+    parallel : bool, optional
+        If True, much is computed in parallel but the logging is scrambled. The default is True.
 
     Returns
     -------
@@ -118,7 +121,7 @@ def read_pwn_data2(
                 _read_bergen_thickness_aquitards,
             ]
             for func in functions:
-                logger.info(f"Gathering PWN layer info with: {func.__name__}")
+                logger.info("Gathering PWN layer info with: %s", func.__name__)
 
                 out = func(
                     ds,
@@ -141,7 +144,7 @@ def read_pwn_data2(
                 _read_kv_area,
             ]
             for func in functions:
-                logger.info(f"Gathering PWN layer info with: {func.__name__}")
+                logger.info("Gathering PWN layer info with: %s", func.__name__)
                 out = func(
                     ds,
                     datadir_mensink,
@@ -166,6 +169,7 @@ def _read_bergen_basis_aquitards(
     pathname=None,
     length_transition=100.0,
     ix=None,
+    *,
     use_default_values_outside_polygons=False,
 ):
     """Read basis of aquitards.
@@ -197,6 +201,7 @@ def _read_bergen_basis_aquitards(
         xarray dataset with True for all cells in the transition zone.
 
     """
+    iskrieged = -999.0
     default_values = {"1A": -3.0, "1B": -5.0, "1C": -15.0, "1D": -20.0, "q2": -35.0}
     polynames = {
         "1A": "BA1A",
@@ -214,11 +219,13 @@ def _read_bergen_basis_aquitards(
     }
 
     logging.info("read basis of Bergen aquitards")
-    assert not (
-        use_default_values_outside_polygons and length_transition is not None
-    ), "length_transition and use_default_values_outside_polygons are incompatible."
+
+    if use_default_values_outside_polygons and length_transition is not None:
+         msg = "length_transition and use_default_values_outside_polygons are incompatible."
+         raise ValueError(msg)
 
     ds_out = xr.Dataset()
+
     fd = os.path.join(pathname, "Laagopbouw", "Basis_aquitard")
 
     # Load shapes for which no Kriging is applied
@@ -226,8 +233,8 @@ def _read_bergen_basis_aquitards(
         gdf = gpd.read_file(os.path.join(fd, f"{polyname}.shp"))
         gdf = make_valid_polygons(gdf)
 
-        gdf_fill = gdf[gdf.VALUE != -999.0]  # -999 is Krieged
-        gdf_krieg = gdf[gdf.VALUE == -999.0]
+        gdf_fill = gdf[iskrieged != gdf.VALUE]  # -999 is Krieged
+        gdf_krieg = gdf[iskrieged == gdf.VALUE]
         array = nlmod.dims.grid.gdf_to_da(gdf_fill, ds, column="VALUE", agg_method="area_weighted", ix=ix)
 
         # Krieging
@@ -249,7 +256,9 @@ def _read_bergen_basis_aquitards(
                 gdf_krieg.geometry.explode("geometry", index_parts=True).values
             )  # returns Polygon or MultiPolygon
             _multipolygonl = [g for g in make_valid(_multipolygon).geoms if isinstance(g, (MultiPolygon, Polygon))]
-            assert len(_multipolygonl) == 1, "MultiPolygons in multipolygon"
+            if len(_multipolygonl) != 1:
+                msg = "MultiPolygons in multipolygon"
+                raise ValueError(msg)
             multipolygon = _multipolygonl[0]
 
             r = ix.intersect(
@@ -325,6 +334,7 @@ def _read_bergen_thickness_aquitards(
     pathname=None,
     length_transition=100.0,
     ix=None,
+    *,
     use_default_values_outside_polygons=False,
 ):
     """Read thickness of aquitards.
@@ -376,6 +386,8 @@ def _read_bergen_thickness_aquitards(
     assert not (
         use_default_values_outside_polygons and length_transition is not None
     ), "length_transition and use_default_values_outside_polygons are incompatible."
+
+
 
     ds_out = xr.Dataset()
     fd = os.path.join(pathname, "Laagopbouw", "Dikte_aquitard")
@@ -652,7 +664,7 @@ def _read_layer_kh(ds, pathname, length_transition=100.0, ix=None):
 
 
 @cache.cache_netcdf(coords_2d=True)
-def _read_kv_area(ds, pathname, length_transition=100.0, ix=None):
+def _read_kv_area(ds, pathname, length_transition=100.0, ix=None):  # noqa: ARG001
     """Read vertical resistance of layers.
 
     Parameters
@@ -801,8 +813,6 @@ def make_valid_polygons(gdf):
         GeoDataFrame with valid polygons.
 
     """
-    import shapely
-
     gdf = gdf.copy()
     gdf.geometry = gdf.make_valid()
 
