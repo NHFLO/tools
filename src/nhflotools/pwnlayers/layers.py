@@ -7,7 +7,7 @@ import xarray as xr
 from nlmod import cache
 from scipy.interpolate import griddata
 
-from .io import read_pwn_data2
+from nhflotools.pwnlayers.io import read_pwn_data2
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,8 @@ def get_pwn_layer_model(
     # Use AHN as top. Top of layer_model_regis is used in layer_model_mensink and bergen.
     logger.info("Using top from input")
     if top.isnull().any():
-        raise ValueError("Variable top should not contain nan values")
+        msg = "Variable top should not contain nan values"
+        raise ValueError(msg)
     layer_model_regis["top"] = top
 
     if fix_min_layer_thickness:
@@ -132,7 +133,7 @@ def get_pwn_layer_model(
     df_koppeltabel = df_koppeltabel[~df_koppeltabel["ASSUMPTION1"].isna()]
 
     # Combine PWN layer model with REGIS layer model
-    layer_model_mensink_regis, cat_mensink_regis = combine_two_layer_models(
+    layer_model_mensink_regis, _cat_mensink_regis = combine_two_layer_models(
         df_koppeltabel,
         layer_model_regis,
         layer_model_mensink,
@@ -230,7 +231,8 @@ def get_top_from_ahn(
         The top of the model grid.
     """
     if "ahn" not in ds:
-        raise ValueError("Dataset should contain the AHN data")
+        msg = "Dataset should contain the AHN data"
+        raise ValueError(msg)
 
     top = ds["ahn"].copy()
 
@@ -280,7 +282,8 @@ def _fix_missings_botms_and_min_layer_thickness(ds):
         If top contains nan values.
     """
     if ds["top"].isnull().any():
-        raise ValueError("Top should not contain nan values")
+        msg = "Top should not contain nan values"
+        raise ValueError(msg)
 
     out = xr.concat((ds["top"].expand_dims(dim={"layer": ["mv"]}, axis=0), ds["botm"]), dim="layer")
 
@@ -401,9 +404,7 @@ def combine_two_layer_models(
         assert all(
             var in transition_model.variables for var in ["kh", "kv", "botm"]
         ), "Variable 'kh', 'kv', or 'botm' is missing in transition_model"
-        assert all([
-            np.issubdtype(dtype, bool) for dtype in transition_model.dtypes.values()
-        ]), "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
+        assert all(np.issubdtype(dtype, bool) for dtype in transition_model.dtypes.values()), "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
 
     # Set all values of layer_model_other to nan where mask_model_other is False so that
     # the values of layer_model_regis are used.
@@ -525,17 +526,17 @@ def combine_two_layer_models(
     -------------------------------------------------
 
     In a previous step, extra layers were added to layer_model_top_split so that one REGIS layer
-    can connect to multiple PWN layers. The botm is already at the correct elevation for where 
+    can connect to multiple PWN layers. The botm is already at the correct elevation for where
     the PWN layers are present (layer_model_other_split). The botm's of those layers is here set
     to the is now adjusted so that the thickness
 
     The total_thickness_layers is the sum of the thickness of the PWN layers that are connected
-    to the one REGIS layer. The total thickness of the PWN layers is used if available, else the 
-    total thickness of the REGIS layers is used. The thickness of the PWN layers is extrapolated 
+    to the one REGIS layer. The total thickness of the PWN layers is used if available, else the
+    total thickness of the REGIS layers is used. The thickness of the PWN layers is extrapolated
     into the areas of the REGIS layers.
-    
+
     The thick_ratio_other is the ratio of the thickness of the PWN layers with respect to total thickness
-    that is extrapolated into the REGIS layer. The thick_ratio_other is used to calculate the elevations 
+    that is extrapolated into the REGIS layer. The thick_ratio_other is used to calculate the elevations
     of the botm of the newly split REGIS layers.
     """
 
@@ -651,13 +652,13 @@ def combine_two_layer_models(
     -------------------------------------------------
 
     In a previous step, extra layers were added to layer_model_other_split so that one PWN layer
-    can connect to multiple REGIS layers. Outside of the PWN layers, the botm of the multiple 
+    can connect to multiple REGIS layers. Outside of the PWN layers, the botm of the multiple
     REGIS layers is already at the correct elevation (layer_model_top_split). Inside of the PWN
-    layers only the lower botm and the upper top are at the correct elevation. The elevation 
+    layers only the lower botm and the upper top are at the correct elevation. The elevation
     intermediate botm's inside the PWN layers is set here.
 
-    To estimate the thickness of the intermediate layers, the origional layer thickness over 
-    total thickness ratio of the REGIS layers at the the location of the PWN layer is used 
+    To estimate the thickness of the intermediate layers, the origional layer thickness over
+    total thickness ratio of the REGIS layers at the the location of the PWN layer is used
     (thick_ratio_regis). This strategy is chosen so that the transition between PWN and REGIS
     layers is smooth.
     """
@@ -1075,31 +1076,31 @@ def get_bergen_kh(data, mask=False, anisotropy=5.0, transition=False):
     if mask:
         # valid value if valid thickness and valid BER_C
         out = get_bergen_thickness(data, mask=True, transition=False).rename("kh").drop_vars("layer")
-        out[dict(layer=1)] *= data["BER_C1A_mask"]
-        out[dict(layer=3)] *= data["BER_C1B_mask"]
-        out[dict(layer=5)] *= data["BER_C1C_mask"]
-        out[dict(layer=7)] *= data["BER_C1D_mask"]
-        out[dict(layer=9)] *= data["BER_C2_mask"]
+        out[{"layer": 1}] *= data["BER_C1A_mask"]
+        out[{"layer": 3}] *= data["BER_C1B_mask"]
+        out[{"layer": 5}] *= data["BER_C1C_mask"]
+        out[{"layer": 7}] *= data["BER_C1D_mask"]
+        out[{"layer": 9}] *= data["BER_C2_mask"]
 
     elif transition:
         # Valid value if valid thickness or valid BER_C
         out = get_bergen_thickness(data, mask=True, transition=False).rename("kh").drop_vars("layer")
-        out[dict(layer=1)] |= data["BER_C1A_mask"]
-        out[dict(layer=3)] |= data["BER_C1B_mask"]
-        out[dict(layer=5)] |= data["BER_C1C_mask"]
-        out[dict(layer=7)] |= data["BER_C1D_mask"]
-        out[dict(layer=9)] |= data["BER_C2_mask"]
+        out[{"layer": 1}] |= data["BER_C1A_mask"]
+        out[{"layer": 3}] |= data["BER_C1B_mask"]
+        out[{"layer": 5}] |= data["BER_C1C_mask"]
+        out[{"layer": 7}] |= data["BER_C1D_mask"]
+        out[{"layer": 9}] |= data["BER_C2_mask"]
 
     else:
         thickness = get_bergen_thickness(data, mask=mask, transition=transition).drop_vars("layer")
         out = xr.ones_like(thickness).rename("kh")
 
-        out[dict(layer=[0, 2, 4, 6, 8])] *= [[8.0], [7.0], [12.0], [15.0], [20.0]]
-        out[dict(layer=1)] = thickness[dict(layer=1)] / data["BER_C1A"] * anisotropy
-        out[dict(layer=3)] = thickness[dict(layer=3)] / data["BER_C1B"] * anisotropy
-        out[dict(layer=5)] = thickness[dict(layer=5)] / data["BER_C1C"] * anisotropy
-        out[dict(layer=7)] = thickness[dict(layer=7)] / data["BER_C1D"] * anisotropy
-        out[dict(layer=9)] = thickness[dict(layer=9)] / data["BER_C2"] * anisotropy
+        out[{"layer": [0, 2, 4, 6, 8]}] *= [[8.0], [7.0], [12.0], [15.0], [20.0]]
+        out[{"layer": 1}] = thickness[{"layer": 1}] / data["BER_C1A"] * anisotropy
+        out[{"layer": 3}] = thickness[{"layer": 3}] / data["BER_C1B"] * anisotropy
+        out[{"layer": 5}] = thickness[{"layer": 5}] / data["BER_C1C"] * anisotropy
+        out[{"layer": 7}] = thickness[{"layer": 7}] / data["BER_C1D"] * anisotropy
+        out[{"layer": 9}] = thickness[{"layer": 9}] / data["BER_C2"] * anisotropy
 
     return out
 

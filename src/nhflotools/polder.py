@@ -34,10 +34,10 @@ def drn_from_waterboard_data(ds, gwf, wb="Hollands Noorderkwartier", cbot=1.0):
         DRN package.
     """
     gdf = nlmod.read.waterboard.get_data(wb=wb, data_kind="level_areas", extent=ds.extent)
-    
+
     if gdf.empty:
         return None
-        
+
     gdf_grid = nlmod.grid.gdf_to_grid(gdf.loc[:, ["summer_stage", "winter_stage", "geometry"]], gwf)
     fields_methods = {
         "summer_stage": "area_weighted",

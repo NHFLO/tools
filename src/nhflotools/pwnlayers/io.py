@@ -1,6 +1,7 @@
 import logging
 import os
 
+import dask
 import geopandas as gpd
 import nlmod
 import numpy as np
@@ -20,16 +21,23 @@ def read_pwn_data2(
     datadir_mensink=None,
     datadir_bergen=None,
     length_transition=100.0,
+    parallel=True,
     cachedir=None,
 ):
-    """Reads model data from a directory
+    """Reads model data from a directory.
 
     Parameters
     ----------
     ds : xarray Dataset
         model dataset.
-    datadir : str, optional
-        directory with modeldata. The default is None.
+    datadir_mensink : str, optional
+        directory with modeldata of mensink. The default is None.
+    datadir_bergen : str, optional
+        directory with modeldata of bergen. The default is None.
+    length_transition : float, optional
+        length of transition zone, by default 100.
+    parallel : bool, optional
+        If True, much is computed in parallel but the logging is scrambled. The default is True.
     cachedir : str, optional
         cachedir used to cache files using the decorator
         nlmod.cache.cache_netcdf. The default is None.
@@ -52,51 +60,97 @@ def read_pwn_data2(
             "gridtype": ds.attrs["gridtype"],
         }
     )
+    if parallel:
+        logger.info("Using dask to compute in parallel. Logging is scrambled.")
+        functions = []
+        out_delayed = []
 
-    if datadir_bergen is not None:
-        logger.info("Reading PWN data from Bergen")
-        functions = [
-            _read_bergen_c_aquitards,
-            _read_bergen_basis_aquitards,
-            _read_bergen_thickness_aquitards,
-        ]
+        if datadir_bergen is not None:
+            functions = [
+                _read_bergen_c_aquitards,
+                _read_bergen_basis_aquitards,
+                _read_bergen_thickness_aquitards,
+            ]
+            out_delayed += [
+                dask.delayed(func)(
+                    ds,
+                    datadir_bergen,
+                    length_transition=length_transition,
+                    cachedir=cachedir,
+                    cachename=f"triw_{func.__name__}",
+                    ix=ix,
+                )
+                for func in functions
+            ]
 
-        for func in functions:
-            logger.info(f"Gathering PWN layer info with: {func.__name__}")
+        if datadir_mensink is not None:
+            functions = [
+                _read_top_of_aquitards,
+                _read_thickness_of_aquitards,
+                _read_kd_of_aquitards,
+                _read_mask_of_aquifers,
+                _read_layer_kh,
+                _read_kv_area,
+            ]
+            out_delayed += [
+                dask.delayed(func)(
+                    ds,
+                    datadir_mensink,
+                    length_transition=length_transition,
+                    cachedir=cachedir,
+                    cachename=f"triw_{func.__name__}",
+                    ix=ix,
+                )
+                for func in functions
+            ]
 
-            out = func(
-                ds,
-                datadir_bergen,
-                length_transition=length_transition,
-                cachedir=cachedir,
-                cachename=f"triw_{func.__name__}",
-                ix=ix,
-            )
-            ds_out.update(out)
+        out = dask.compute(out_delayed)[0]
 
-    if datadir_mensink is not None:
-        logger.info("Reading PWN data from Mensink")
-        functions = [
-            _read_top_of_aquitards,
-            _read_thickness_of_aquitards,
-            _read_kd_of_aquitards,
-            _read_mask_of_aquifers,
-            _read_layer_kh,
-            _read_kv_area,
-        ]
+        for outi in out:
+            ds_out.update(outi)
 
-        for func in functions:
-            logger.info(f"Gathering PWN layer info with: {func.__name__}")
+    else:
+        if datadir_bergen is not None:
+            logger.info("Reading PWN data from Bergen")
+            functions = [
+                _read_bergen_c_aquitards,
+                _read_bergen_basis_aquitards,
+                _read_bergen_thickness_aquitards,
+            ]
+            for func in functions:
+                logger.info(f"Gathering PWN layer info with: {func.__name__}")
 
-            out = func(
-                ds,
-                datadir_mensink,
-                length_transition=length_transition,
-                cachedir=cachedir,
-                cachename=f"triw_{func.__name__}",
-                ix=ix,
-            )
-            ds_out.update(out)
+                out = func(
+                    ds,
+                    datadir_bergen,
+                    length_transition=length_transition,
+                    cachedir=cachedir,
+                    cachename=f"triw_{func.__name__}",
+                    ix=ix,
+                )
+                ds_out.update(out)
+
+        if datadir_mensink is not None:
+            logger.info("Reading PWN data from Mensink")
+            functions = [
+                _read_top_of_aquitards,
+                _read_thickness_of_aquitards,
+                _read_kd_of_aquitards,
+                _read_mask_of_aquifers,
+                _read_layer_kh,
+                _read_kv_area,
+            ]
+            for func in functions:
+                logger.info(f"Gathering PWN layer info with: {func.__name__}")
+                out = func(
+                    ds,
+                    datadir_mensink,
+                    length_transition=length_transition,
+                    cachedir=cachedir,
+                    cachename=f"triw_{func.__name__}",
+                    ix=ix,
+                )
+                ds_out.update(out)
 
     # Add top from ds
     ds_out["top"] = ds["top"]
@@ -114,7 +168,7 @@ def _read_bergen_basis_aquitards(
     ix=None,
     use_default_values_outside_polygons=False,
 ):
-    """Read basis of aquitards
+    """Read basis of aquitards.
 
     Parameters
     ----------
@@ -207,7 +261,7 @@ def _read_bergen_basis_aquitards(
             xpts = ds.x.sel(icell2d=r.icell2d).values
             ypts = ds.y.sel(icell2d=r.icell2d).values
             z, _ = ok.execute("points", xpts, ypts)
-            array.loc[dict(icell2d=r.icell2d)] = z
+            array.loc[{"icell2d": r.icell2d}] = z
 
         # compute mask and transition zone
         ds_out[f"BER_BA{name}_mask"] = ~np.isnan(array)
@@ -225,7 +279,7 @@ def _read_bergen_basis_aquitards(
 
 @cache.cache_netcdf(coords_2d=True)
 def _read_bergen_c_aquitards(ds, pathname, length_transition=100.0, ix=None):
-    """Read vertical resistance of layers
+    """Read vertical resistance of layers.
 
     Parameters
     ----------
@@ -253,7 +307,7 @@ def _read_bergen_c_aquitards(ds, pathname, length_transition=100.0, ix=None):
     ds_out = xr.Dataset()
 
     # read kD-waarden of aquifers
-    for j, name in enumerate(["1A", "1B", "1C", "1D", "2"]):
+    for _j, name in enumerate(["1A", "1B", "1C", "1D", "2"]):
         fname = os.path.join(pathname, "Bodemparams", f"C{name}.shp")
         gdf = gpd.read_file(fname)
         gdf = make_valid_polygons(gdf)
@@ -273,7 +327,7 @@ def _read_bergen_thickness_aquitards(
     ix=None,
     use_default_values_outside_polygons=False,
 ):
-    """Read thickness of aquitards
+    """Read thickness of aquitards.
 
     Parameters
     ----------
@@ -364,7 +418,7 @@ def _read_bergen_thickness_aquitards(
             xpts = ds.x.sel(icell2d=r.icell2d).values
             ypts = ds.y.sel(icell2d=r.icell2d).values
             z, _ = ok.execute("points", xpts, ypts)
-            array.loc[dict(icell2d=r.icell2d)] = z
+            array.loc[{"icell2d": r.icell2d}] = z
 
         # compute mask and transition zone
         ds_out[f"BER_DI{name}_mask"] = ~np.isnan(array)
@@ -382,7 +436,7 @@ def _read_bergen_thickness_aquitards(
 
 @cache.cache_netcdf(coords_2d=True)
 def _read_top_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
-    """Read top of aquitards
+    """Read top of aquitards.
 
     Parameters
     ----------
@@ -424,7 +478,7 @@ def _read_top_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
 
 @cache.cache_netcdf(coords_2d=True)
 def _read_thickness_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
-    """Read thickness of aquitards
+    """Read thickness of aquitards.
 
     Parameters
     ----------
@@ -468,7 +522,7 @@ def _read_thickness_of_aquitards(ds, pathname, length_transition=100.0, ix=None)
 
 @cache.cache_netcdf(coords_2d=True)
 def _read_kd_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
-    """Read kd of aquitards
+    """Read kd of aquitards.
 
     Parameters
     ----------
@@ -509,7 +563,7 @@ def _read_kd_of_aquitards(ds, pathname, length_transition=100.0, ix=None):
 
 @cache.cache_netcdf(coords_2d=True)
 def _read_mask_of_aquifers(ds, pathname, length_transition=100.0, ix=None):
-    """Read mask of aquifers
+    """Read mask of aquifers.
 
     Parameters
     ----------
@@ -556,7 +610,7 @@ def _read_mask_of_aquifers(ds, pathname, length_transition=100.0, ix=None):
 
 @cache.cache_netcdf(coords_2d=True)
 def _read_layer_kh(ds, pathname, length_transition=100.0, ix=None):
-    """Read hydraulic conductivity of layers
+    """Read hydraulic conductivity of layers.
 
     Parameters
     ----------
@@ -599,7 +653,7 @@ def _read_layer_kh(ds, pathname, length_transition=100.0, ix=None):
 
 @cache.cache_netcdf(coords_2d=True)
 def _read_kv_area(ds, pathname, length_transition=100.0, ix=None):
-    """Read vertical resistance of layers
+    """Read vertical resistance of layers.
 
     Parameters
     ----------
@@ -674,7 +728,7 @@ def _read_kv_area(ds, pathname, length_transition=100.0, ix=None):
 
 @cache.cache_netcdf(coords_2d=True)
 def _read_topsysteem(ds, pathname):
-    """Read topsysteem
+    """Read topsysteem.
 
     Not tested yet after delivered by Artesia
 
@@ -731,7 +785,7 @@ def _read_topsysteem(ds, pathname):
 
 
 def make_valid_polygons(gdf):
-    """Make polygons valid
+    """Make polygons valid.
 
     And reduces geometrycollections that consist of not just polygons to
     multipolygons.

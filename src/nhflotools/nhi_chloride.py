@@ -33,10 +33,7 @@ def get_nhi_chloride_concentration(ds, data_path_nhi_chloride):
     # cli has x and y of ds but layer of cl
     cli = cl.interp(x=ds.x, y=ds.y, method="nearest").drop_vars(["dy", "dx", "percentile"])
 
-    da = nlmod.layers.aggregate_by_weighted_mean_to_ds(
-        ds, 
-        xr.Dataset({"p50": cli}), 
-        "p50")
+    da = nlmod.layers.aggregate_by_weighted_mean_to_ds(ds, xr.Dataset({"p50": cli}), "p50")
 
     da.values[0] = xr.where(ds["northsea"] == 1, 18_000, da.values[0])
 
@@ -49,6 +46,6 @@ def get_nhi_chloride_concentration(ds, data_path_nhi_chloride):
     }
 
     if da.isnull().any():
-        logger.warning(f"Interpolated NHI chloride concentration contains NaNs")
+        logger.warning("Interpolated NHI chloride concentration contains NaNs")
 
     return da
