@@ -50,6 +50,7 @@ dependencies = [
     "pandas",
     "geopandas",
     "xarray",
+    "dask",
     "nlmod",
     "flopy",
     "seaborn",
