@@ -49,6 +49,7 @@ def get_pwn_layer_model(
     fname_koppeltabel,
     top=None,
     length_transition=100.0,
+    *,
     fix_min_layer_thickness=True,
 ):
     """
@@ -404,7 +405,9 @@ def combine_two_layer_models(
         assert all(
             var in transition_model.variables for var in ["kh", "kv", "botm"]
         ), "Variable 'kh', 'kv', or 'botm' is missing in transition_model"
-        assert all(np.issubdtype(dtype, bool) for dtype in transition_model.dtypes.values()), "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
+        assert all(
+            np.issubdtype(dtype, bool) for dtype in transition_model.dtypes.values()
+        ), "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
 
     # Set all values of layer_model_other to nan where mask_model_other is False so that
     # the values of layer_model_regis are used.
@@ -890,7 +893,7 @@ def get_mensink_layer_model(ds_pwn_data, fix_min_layer_thickness=True):
     )
 
 
-def get_bergen_layer_model(ds_pwn_data, fix_min_layer_thickness=True):
+def get_bergen_layer_model(ds_pwn_data, *, fix_min_layer_thickness=True):
     layer_model_bergen = xr.Dataset(
         {
             "top": ds_pwn_data["top"],
@@ -949,7 +952,7 @@ def get_bergen_layer_model(ds_pwn_data, fix_min_layer_thickness=True):
     )
 
 
-def get_bergen_thickness(data, mask=False, transition=False, fix_min_layer_thickness=True):
+def get_bergen_thickness(data, *, mask=False, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the thickness of layers in a given dataset.
 
@@ -1038,7 +1041,7 @@ def get_bergen_thickness(data, mask=False, transition=False, fix_min_layer_thick
     return out
 
 
-def get_bergen_kh(data, mask=False, anisotropy=5.0, transition=False):
+def get_bergen_kh(data, *, mask=False, anisotropy=5.0, transition=False):
     """
     Calculate the hydraulic conductivity (kh) based on the given data.
 
@@ -1105,7 +1108,7 @@ def get_bergen_kh(data, mask=False, anisotropy=5.0, transition=False):
     return out
 
 
-def get_bergen_kv(data, mask=False, anisotropy=5.0, transition=False):
+def get_bergen_kv(data, *, mask=False, anisotropy=5.0, transition=False):
     """
     Calculate the hydraulic conductivity (KV) for different aquifers and aquitards.
 
@@ -1148,7 +1151,7 @@ def get_bergen_kv(data, mask=False, anisotropy=5.0, transition=False):
     return out
 
 
-def get_bergen_botm(data, mask=False, transition=False, fix_min_layer_thickness=True):
+def get_bergen_botm(data, *, mask=False, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the bottom elevation of each layer in the Bergen model.
 
@@ -1215,7 +1218,7 @@ def get_bergen_botm(data, mask=False, transition=False, fix_min_layer_thickness=
     return out
 
 
-def get_mensink_thickness(data, mask=False, transition=False, fix_min_layer_thickness=True):
+def get_mensink_thickness(data, *, mask=False, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the thickness of layers in a given dataset.
 
@@ -1304,7 +1307,7 @@ def get_mensink_thickness(data, mask=False, transition=False, fix_min_layer_thic
     return out
 
 
-def get_mensink_kh(data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
+def get_mensink_kh(data, *, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the hydraulic conductivity (kh) based on the given data.
 
@@ -1405,7 +1408,7 @@ def get_mensink_kh(data, mask=False, anisotropy=5.0, transition=False, fix_min_l
     return out
 
 
-def get_mensink_kv(data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
+def get_mensink_kv(data, *, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the hydraulic conductivity (KV) for different aquifers and aquitards.
 
@@ -1499,7 +1502,7 @@ def get_mensink_kv(data, mask=False, anisotropy=5.0, transition=False, fix_min_l
     return out
 
 
-def get_mensink_botm(data, mask=False, transition=False, fix_min_layer_thickness=True):
+def get_mensink_botm(data, *, mask=False, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the bottom elevation of each layer in the model.
 

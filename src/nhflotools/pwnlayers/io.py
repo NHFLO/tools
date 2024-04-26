@@ -1,4 +1,5 @@
 """Read PWN data from Mensink and Bergen."""
+
 import logging
 import os
 
@@ -20,11 +21,11 @@ logger = logging.getLogger(__name__)
 
 def read_pwn_data2(
     ds=None,
+    *,
     datadir_mensink=None,
     datadir_bergen=None,
     length_transition=100.0,
     cachedir=None,
-    *,
     parallel=True,
 ):
     """Read PWN data from Mensink and Bergen.
@@ -169,8 +170,6 @@ def _read_bergen_basis_aquitards(
     pathname=None,
     length_transition=100.0,
     ix=None,
-    *,
-    use_default_values_outside_polygons=False,
 ):
     """Read basis of aquitards.
 
@@ -184,10 +183,6 @@ def _read_bergen_basis_aquitards(
         length of transition zone, by default 100. Incompatible with use_default_values_outside_polygons.
     ix : GridIntersect, optional
         If not provided it is computed from ds.
-    use_default_values_outside_polygons : bool, optional
-        If True, the default values are used for cells outside the polygons.
-        If False, nan is used for cells outside the polygons. Default is False.
-        Transition zone to REGISII is better. Implemented to mimic triwaco Bergen model.
 
 
     Returns
@@ -202,7 +197,6 @@ def _read_bergen_basis_aquitards(
 
     """
     iskrieged = -999.0
-    default_values = {"1A": -3.0, "1B": -5.0, "1C": -15.0, "1D": -20.0, "q2": -35.0}
     polynames = {
         "1A": "BA1A",
         "1B": "BA1B_pol",
@@ -219,10 +213,6 @@ def _read_bergen_basis_aquitards(
     }
 
     logging.info("read basis of Bergen aquitards")
-
-    if use_default_values_outside_polygons and length_transition is not None:
-         msg = "length_transition and use_default_values_outside_polygons are incompatible."
-         raise ValueError(msg)
 
     ds_out = xr.Dataset()
 
@@ -275,12 +265,8 @@ def _read_bergen_basis_aquitards(
         # compute mask and transition zone
         ds_out[f"BER_BA{name}_mask"] = ~np.isnan(array)
 
-        if use_default_values_outside_polygons:
-            array = array.where(ds_out[f"{name}_mask"], default_values[name])
-            ds_out[f"BER_BA{name}_transition"] = xr.zeros_like(array, dtype=bool)
-        else:
-            in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
-            ds_out[f"BER_BA{name}_transition"] = in_transition & ~ds_out[f"BER_BA{name}_mask"]
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
+        ds_out[f"BER_BA{name}_transition"] = in_transition & ~ds_out[f"BER_BA{name}_mask"]
 
         ds_out[f"BER_BA{name}"] = array
     return ds_out
@@ -334,8 +320,6 @@ def _read_bergen_thickness_aquitards(
     pathname=None,
     length_transition=100.0,
     ix=None,
-    *,
-    use_default_values_outside_polygons=False,
 ):
     """Read thickness of aquitards.
 
@@ -349,11 +333,6 @@ def _read_bergen_thickness_aquitards(
         length of transition zone, by default 100. Incompatible with use_default_values_outside_polygons.
     ix : GridIntersect, optional
         If not provided it is computed from ds.
-    use_default_values_outside_polygons : bool, optional
-        If True, the default values are used for cells outside the polygons.
-        If False, nan is used for cells outside the polygons. Default is False.
-        Transition zone to REGISII is better. Implemented to mimic triwaco Bergen model.
-
 
     Returns
     -------
@@ -366,7 +345,7 @@ def _read_bergen_thickness_aquitards(
         xarray dataset with True for all cells in the transition zone.
 
     """
-    default_values = {"1A": 0.0, "1B": 0.0, "1C": 0.0, "1D": 0.0, "q2": 0.0}
+    iskrieged = -999.0
     polynames = {
         "1A": "DI1A",
         "1B": "DI1B_pol",
@@ -383,11 +362,6 @@ def _read_bergen_thickness_aquitards(
     }
 
     logging.info("read thickness of Bergen aquitards")
-    assert not (
-        use_default_values_outside_polygons and length_transition is not None
-    ), "length_transition and use_default_values_outside_polygons are incompatible."
-
-
 
     ds_out = xr.Dataset()
     fd = os.path.join(pathname, "Laagopbouw", "Dikte_aquitard")
@@ -396,8 +370,8 @@ def _read_bergen_thickness_aquitards(
     for name, polyname in polynames.items():
         gdf = gpd.read_file(os.path.join(fd, f"{polyname}.shp"))
         gdf = make_valid_polygons(gdf)
-        gdf_fill = gdf[gdf.VALUE != -999.0]  # -999 is Krieged
-        gdf_krieg = gdf[gdf.VALUE == -999.0]
+        gdf_fill = gdf[iskrieged != gdf.VALUE]  # -999 is Krieged
+        gdf_krieg = gdf[iskrieged == gdf.VALUE]
         array = nlmod.dims.grid.gdf_to_da(gdf_fill, ds, column="VALUE", agg_method="area_weighted", ix=ix)
 
         # Krieging
@@ -416,10 +390,14 @@ def _read_bergen_thickness_aquitards(
                 enable_plotting=False,
             )
             _multipolygon = MultiPolygon(
-                gdf_krieg.geometry.explode("geometry", index_parts=True).values
+                gdf_krieg.geometry.explode("geometry", index_parts=True).values / tools
             )  # returns Polygon or MultiPolygon
             _multipolygonl = [g for g in make_valid(_multipolygon).geoms if isinstance(g, (MultiPolygon, Polygon))]
-            assert len(_multipolygonl) == 1, "MultiPolygons in multipolygon"
+
+            if len(_multipolygonl) != 1:
+                msg = "MultiPolygons in multipolygon"
+                raise ValueError(msg)
+
             multipolygon = _multipolygonl[0]
 
             r = ix.intersect(multipolygon, contains_centroid=False, min_area_fraction=None).astype([
@@ -435,12 +413,8 @@ def _read_bergen_thickness_aquitards(
         # compute mask and transition zone
         ds_out[f"BER_DI{name}_mask"] = ~np.isnan(array)
 
-        if use_default_values_outside_polygons:
-            array = array.where(ds_out[f"{name}_mask"], default_values[name])
-            ds_out[f"BER_DI{name}_transition"] = xr.zeros_like(array, dtype=bool)
-        else:
-            in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
-            ds_out[f"BER_DI{name}_transition"] = in_transition & ~ds_out[f"BER_DI{name}_mask"]
+        in_transition = nlmod.dims.grid.gdf_to_bool_da(gdf, ds, ix=ix, buffer=length_transition)
+        ds_out[f"BER_DI{name}_transition"] = in_transition & ~ds_out[f"BER_DI{name}_mask"]
 
         ds_out[f"BER_DI{name}"] = array
     return ds_out
