@@ -1,3 +1,5 @@
+"""Module providing functions for working with NHI chloride concentration data."""
+
 import logging
 import os
 
@@ -24,7 +26,7 @@ def get_nhi_chloride_concentration(ds, data_path_nhi_chloride):
     xr.DataArray
         interpolated chloride concentration
     """
-    logger.info(f"Get NHI chloride concentration from {data_path_nhi_chloride} and interpolate to modelgrid")
+    logger.info("Get NHI chloride concentration from %s and interpolate to modelgrid", data_path_nhi_chloride)
     fp_cl = os.path.join(data_path_nhi_chloride, "chloride_p50.nc")
 
     with xr.open_dataset(fp_cl) as fh:

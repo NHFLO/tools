@@ -65,11 +65,10 @@ def riv_from_oppervlakte_pwn(ds, gwf, data_path_panden):
 
     riv_spd = nlmod.gwf.build_spd(agg, "RIV", ds, layer_method="lay_of_rbot")
 
-    riv = flopy.mf6.ModflowGwfriv(
+    return flopy.mf6.ModflowGwfriv(
         gwf,
         auxiliary="CONCENTRATION",
         boundnames=True,
         stress_period_data={0: riv_spd},
         save_flows=True,
     )
-    return riv

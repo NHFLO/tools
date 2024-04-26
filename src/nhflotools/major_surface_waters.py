@@ -1,14 +1,27 @@
+"""Functions for handling major surface waters in NHFLO."""
+
 import nlmod
 import numpy as np
 import xarray as xr
 
 
 def get_chd_ghb_data_from_major_surface_waters(ds, da_name="rws_oppwater", cachedir=None):
-    """Get chd and ghb data from major surface waters
+    """Get chd and ghb data from major surface waters.
 
-    De grote oppervlaktewaterlichamen in het model zijn de Noordzee, de Waddenzee, het IJsselmeer en het Noordzeekanaal. Deze zijn in het model ingevoerd door shapefiles van de ligging van deze wateren te versnijden met het modelgrid. Deze shapefiles zijn gedownload in 2021 van Rijkswaterstaat en standaard beschikbaar gesteld binnen NLMOD. Daarbij is onderscheid gemaakt tussen de zee en de overige grote oppervlaktewaterlichamen. De zee randvoorwaarden zijn in het model opgenomen via de Constant Head package (CHD). Het peil is aan het begin van de simulatie ingesteld op NAP+4 cm (Klimaatdashboard KNMI 2021). De zee kan door de zeebodem dus zowel water infiltreren als draineren. De zee heeft een vaste chloride concentratie van 18.000 mg Cl−/l. Deze concentratie is vastgezet in het transportmodel via de Constant Concentration (CNC) package.
+    De grote oppervlaktewaterlichamen in het model zijn de Noordzee, de Waddenzee, het IJsselmeer en het Noordzeekanaal.
+    Deze zijn in het model ingevoerd door shapefiles van de ligging van deze wateren te versnijden met het modelgrid.
+    Deze shapefiles zijn gedownload in 2021 van Rijkswaterstaat en standaard beschikbaar gesteld binnen NLMOD. Daarbij
+    is onderscheid gemaakt tussen de zee en de overige grote oppervlaktewaterlichamen. De zee randvoorwaarden zijn in
+    het model opgenomen via de Constant Head package (CHD). Het peil is aan het begin van de simulatie ingesteld op
+    NAP+4 cm (Klimaatdashboard KNMI 2021). De zee kan door de zeebodem dus zowel water infiltreren als draineren. De zee
+    heeft een vaste chloride concentratie van 18.000 mg Cl-/l. Deze concentratie is vastgezet in het transportmodel via
+    de Constant Concentration (CNC) package.
 
-    De overige grote oppervlaktewaterlichamen, het IJsselmeer, het Markermeer en het Noordzeekanaal, zijn ingevoerd met de General Head Boundary package (GHB). Daarbij is een bodemweerstand van 1 dag toegepast in combinatie met het oppervlak van het oppervlaktewater per cel om een conductance uit te rekenen. Het peil is gebaseerd op het gemiddelde peil dat wordt gehanteerd volgens Rijkswaterstaat. De concentratie van dit oppervlaktewater is op 0 mg Cl−/l ingesteld. Deze waterlichamen kunnen zowel draineren als infiltreren.
+    De overige grote oppervlaktewaterlichamen, het IJsselmeer, het Markermeer en het Noordzeekanaal, zijn ingevoerd met
+    de General Head Boundary package (GHB). Daarbij is een bodemweerstand van 1 dag toegepast in combinatie met het
+    oppervlak van het oppervlaktewater per cel om een conductance uit te rekenen. Het peil is gebaseerd op het
+    gemiddelde peil dat wordt gehanteerd volgens Rijkswaterstaat. De concentratie van dit oppervlaktewater is op
+    0 mg Cl-/l ingesteld. Deze waterlichamen kunnen zowel draineren als infiltreren.
 
     Parameters
     ----------
@@ -47,8 +60,8 @@ def get_chd_ghb_data_from_major_surface_waters(ds, da_name="rws_oppwater", cache
     return rws_ds
 
 
-def chd_ghb_from_major_surface_waters(ds, gwf, sea_stage=0.0, da_name="rws_oppwater", cachedir=None):
-    """Create chd and ghb packages from major surface waters
+def chd_ghb_from_major_surface_waters(ds, gwf, sea_stage=0.0, da_name="rws_oppwater"):
+    """Create chd and ghb packages from major surface waters.
 
     Parameters
     ----------

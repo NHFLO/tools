@@ -36,7 +36,8 @@ def get_wells_pwn_dataframe(data_path_wells_pwn, flow_product="median"):
     # Get flows of entire secundair. (negative is extraction, positive is infiltration. data is in m3/h)
     flows = pd.read_feather(os.path.join(data_path_wells_pwn, "sec_flows.feather"))
     if flow_product == "timeseries":
-        raise NotImplementedError("flow_product==timeseries not implemented")
+        msg = "flow_product==timeseries not implemented"
+        raise NotImplementedError(msg)
         # wdf["Q"] = wdf.sec_flow_tag and convert to m3/day
         # wdf = wdf.dropna(subset=["Q"])
         # Add `flows` as timeseries using nlmod.dims.time.dataframe_to_flopy_timeseries
@@ -48,7 +49,7 @@ def get_wells_pwn_dataframe(data_path_wells_pwn, flow_product="median"):
         constant_flow = flows.median(axis=0)
         wdf["sec_nput"] = pd.to_numeric(wdf["sec_nput"], errors="coerce")
         wdf["Q"] = wdf.sec_flow_tag.map(constant_flow) / wdf.sec_nput * 24.0
-        wdf = wdf.dropna(subset=["Q"])
-        return wdf
+        return wdf.dropna(subset=["Q"])
 
-    raise ValueError(f"flow_product {flow_product} not implemented")
+    msg = f"flow_product {flow_product} not implemented"
+    raise ValueError(msg)
