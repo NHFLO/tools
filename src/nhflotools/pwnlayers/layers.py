@@ -43,13 +43,13 @@ translate_triwaco_mensink_names_to_index = {
 
 @cache.cache_netcdf(coords_3d=True, datavars=["kh", "kv", "botm", "top"])
 def get_pwn_layer_model(
-    ds_regis,
-    data_path_mensink,
-    data_path_bergen,
-    fname_koppeltabel,
+    *,
+    ds_regis=None,
+    data_path_mensink=None,
+    data_path_bergen=None,
+    fname_koppeltabel=None,
     top=None,
     length_transition=100.0,
-    *,
     fix_min_layer_thickness=True,
 ):
     """

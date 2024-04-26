@@ -390,7 +390,7 @@ def _read_bergen_thickness_aquitards(
                 enable_plotting=False,
             )
             _multipolygon = MultiPolygon(
-                gdf_krieg.geometry.explode("geometry", index_parts=True).values / tools
+                gdf_krieg.geometry.explode("geometry", index_parts=True).values
             )  # returns Polygon or MultiPolygon
             _multipolygonl = [g for g in make_valid(_multipolygon).geoms if isinstance(g, (MultiPolygon, Polygon))]
 
