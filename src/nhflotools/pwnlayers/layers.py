@@ -43,7 +43,6 @@ translate_triwaco_mensink_names_to_index = {
 
 @cache.cache_netcdf(coords_3d=True, datavars=["kh", "kv", "botm", "top"])
 def get_pwn_layer_model(
-    *,
     ds_regis=None,
     data_path_mensink=None,
     data_path_bergen=None,
@@ -893,7 +892,7 @@ def get_mensink_layer_model(ds_pwn_data, fix_min_layer_thickness=True):
     )
 
 
-def get_bergen_layer_model(ds_pwn_data, *, fix_min_layer_thickness=True):
+def get_bergen_layer_model(ds_pwn_data, fix_min_layer_thickness=True):
     layer_model_bergen = xr.Dataset(
         {
             "top": ds_pwn_data["top"],
@@ -952,7 +951,7 @@ def get_bergen_layer_model(ds_pwn_data, *, fix_min_layer_thickness=True):
     )
 
 
-def get_bergen_thickness(data, *, mask=False, transition=False, fix_min_layer_thickness=True):
+def get_bergen_thickness(data, mask=False, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the thickness of layers in a given dataset.
 
@@ -1041,7 +1040,7 @@ def get_bergen_thickness(data, *, mask=False, transition=False, fix_min_layer_th
     return out
 
 
-def get_bergen_kh(data, *, mask=False, anisotropy=5.0, transition=False):
+def get_bergen_kh(data, mask=False, anisotropy=5.0, transition=False):
     """
     Calculate the hydraulic conductivity (kh) based on the given data.
 
@@ -1108,7 +1107,7 @@ def get_bergen_kh(data, *, mask=False, anisotropy=5.0, transition=False):
     return out
 
 
-def get_bergen_kv(data, *, mask=False, anisotropy=5.0, transition=False):
+def get_bergen_kv(data, mask=False, anisotropy=5.0, transition=False):
     """
     Calculate the hydraulic conductivity (KV) for different aquifers and aquitards.
 
@@ -1151,7 +1150,7 @@ def get_bergen_kv(data, *, mask=False, anisotropy=5.0, transition=False):
     return out
 
 
-def get_bergen_botm(data, *, mask=False, transition=False, fix_min_layer_thickness=True):
+def get_bergen_botm(data, mask=False, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the bottom elevation of each layer in the Bergen model.
 
@@ -1218,7 +1217,7 @@ def get_bergen_botm(data, *, mask=False, transition=False, fix_min_layer_thickne
     return out
 
 
-def get_mensink_thickness(data, *, mask=False, transition=False, fix_min_layer_thickness=True):
+def get_mensink_thickness(data, mask=False, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the thickness of layers in a given dataset.
 
@@ -1307,7 +1306,7 @@ def get_mensink_thickness(data, *, mask=False, transition=False, fix_min_layer_t
     return out
 
 
-def get_mensink_kh(data, *, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
+def get_mensink_kh(data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the hydraulic conductivity (kh) based on the given data.
 
@@ -1408,7 +1407,7 @@ def get_mensink_kh(data, *, mask=False, anisotropy=5.0, transition=False, fix_mi
     return out
 
 
-def get_mensink_kv(data, *, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
+def get_mensink_kv(data, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the hydraulic conductivity (KV) for different aquifers and aquitards.
 
@@ -1502,7 +1501,7 @@ def get_mensink_kv(data, *, mask=False, anisotropy=5.0, transition=False, fix_mi
     return out
 
 
-def get_mensink_botm(data, *, mask=False, transition=False, fix_min_layer_thickness=True):
+def get_mensink_botm(data, mask=False, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the bottom elevation of each layer in the model.
 

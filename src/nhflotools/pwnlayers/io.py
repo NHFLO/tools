@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 def read_pwn_data2(
     ds=None,
-    *,
     datadir_mensink=None,
     datadir_bergen=None,
     length_transition=100.0,
