@@ -89,6 +89,10 @@ def get_pwn_layer_model(
     """
     cachedir = None  # Cache not needed for underlying functions
 
+    if (ds_regis.layer != nlmod.read.regis.get_layer_names()).any():
+        msg = "All REGIS layers should be present in `ds_regis`. Use `get_regis(.., remove_nan_layers=False)`."
+        raise ValueError(msg)
+
     layer_model_regis = ds_regis[["botm", "kh", "kv", "xv", "yv", "icvert"]]
     layer_model_regis = layer_model_regis.sel(layer=layer_model_regis.layer != "mv")
     layer_model_regis.attrs = {
