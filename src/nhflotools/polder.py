@@ -60,10 +60,10 @@ def drn_from_waterboard_data(ds, gwf, wb="Hollands Noorderkwartier", cbot=1.0):
     )
 
     drn_elev = xr.full_like(ds.top, np.nan)
-    drn_elev.loc[dict(icell2d=celldata.index)] = celldata.elev.values
+    drn_elev.loc[{"icell2d": celldata.index}] = celldata.elev.values
     drn_elev = xr.where(drn_elev.isnull(), ds["ahn"], drn_elev)
     drn_cond = xr.full_like(ds.top, 0.0)
-    drn_cond.loc[dict(icell2d=celldata.index)] = celldata.cond.values
+    drn_cond.loc[{"icell2d": celldata.index}] = celldata.cond.values
     drn_cond = xr.where(drn_cond.isnull() & ds["ahn"].notnull(), ds.area / cbot, drn_cond)
     drn_cond = drn_cond.clip(max=ds.area.max())
     ds["drn_elev"] = drn_elev
