@@ -25,13 +25,9 @@ license = {file = "LICENSE.txt"}
 requires-python = ">=3.9, <3.12"
 authors = [
   {name = "Bas des Tombe", email = "bas.des.tombe@pwn.nl"},
-  {name = "Onno Ebbens", email = "o.ebbens@artesia-water.nl"},
-  {name = "Davíd Brakenhoff", email = "d.brakenhoff@artesia-water.nl"},
 ]
 maintainers = [
   {name = "Bas des Tombe", email = "bas.des.tombe@pwn.nl"},
-  {name = "Onno Ebbens", email = "o.ebbens@artesia-water.nl"},
-  {name = "Davíd Brakenhoff", email = "d.brakenhoff@artesia-water.nl"},
 ]
 keywords = [
   "NHFLO",
@@ -51,7 +47,7 @@ dependencies = [
     "geopandas",
     "xarray",
     "dask",
-    "nlmod",
+    "nlmod>=0.7.3b",
     "flopy",
     "seaborn",
     "shapely",
