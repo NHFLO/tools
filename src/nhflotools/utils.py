@@ -46,7 +46,7 @@ def get_exe_path(bindir=None, exe_name="mf6"):
     return exe_full_path
 
 
-def get_bin_directory(bindir=None, exe_name="mf6") -> Path:
+def get_bin_directory(bindir=None, exe_name="mf6", download_if_not_found=True) -> Path:
     """
     Get the directory where the executables are stored.
 
@@ -67,6 +67,8 @@ def get_bin_directory(bindir=None, exe_name="mf6") -> Path:
         The directory where the executables are stored, by default "mf6".
     exe_name : str, optional
         The name of the executable, by default None.
+    download_if_not_found : bool, optional
+        Download the executables if they are not found, by default True.
     """
     bindir = Path(bindir) if bindir is not None else None
 
@@ -74,26 +76,36 @@ def get_bin_directory(bindir=None, exe_name="mf6") -> Path:
         exe_name += ".exe"
 
     # If bindir is provided
-    if (bindir is not None and exe_name is not None and Path(bindir / exe_name).exists()) or (
-        bindir is not None and exe_name is None and Path(bindir).exists()):
+    use_bindir = bindir is not None and exe_name is not None and Path(bindir / exe_name).exists()
+    use_bindir |= bindir is not None and exe_name is None and Path(bindir).exists()
+
+    if use_bindir:
         return bindir
 
     # If the executables are in the nlmod directory
     nlmod_bindir = Path(nlmod.__file__).parent / "bin"
 
-    if (exe_name is not None and Path(nlmod_bindir / exe_name).exists()) or (
-        exe_name is None and Path(nlmod_bindir).exists()):
+    use_nlmod_bindir = exe_name is not None and Path(nlmod_bindir / exe_name).exists()
+    use_nlmod_bindir |= exe_name is None and Path(nlmod_bindir).exists()
+
+    if use_nlmod_bindir:
         return nlmod_bindir
 
     # If the executables are in the flopy directory
     flopy_bindir = _get_flopy_bin_directory()
 
-    if (flopy_bindir is not None and exe_name is not None and Path(flopy_bindir / exe_name).exists()) or (
-        flopy_bindir is not None and exe_name is None and Path(flopy_bindir).exists()):
+    use_flopy_bindir = flopy_bindir is not None and exe_name is not None and Path(flopy_bindir / exe_name).exists()
+    use_flopy_bindir |= flopy_bindir is not None and exe_name is None and Path(flopy_bindir).exists()
+    
+    if use_flopy_bindir:
         return flopy_bindir
 
     # Else download the executables
-    nlmod.download_mfbinaries(bindir=bindir)
+    if download_if_not_found:
+        nlmod.download_mfbinaries(bindir=bindir)
+    else:
+        msg = f"Could not find {exe_name} in {bindir}, {nlmod_bindir} and {flopy_bindir}."
+        raise FileNotFoundError(msg)
 
     if bindir is not None and exe_name is not None and not Path(bindir / exe_name).exists():
         msg = f"Could not find {exe_name} in {bindir}."
@@ -103,7 +115,8 @@ def get_bin_directory(bindir=None, exe_name="mf6") -> Path:
         raise FileNotFoundError(msg)
     if bindir is None:
         return nlmod_bindir
-    return bindir
+    else:
+        return bindir
 
 
 def _get_flopy_bin_directory() -> Path:
