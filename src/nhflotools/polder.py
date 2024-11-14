@@ -38,6 +38,13 @@ def drn_from_waterboard_data(ds, gwf, wb="Hollands Noorderkwartier", cbot=1.0):
     if gdf.empty:
         return None
 
+    # Rename duplicate indices
+    counts = Counter(gdf.index)
+    suffix_counter = defaultdict(lambda: itertools.count(1))
+    index2 = [elem if counts[elem] == 1 else elem + f'_{next(suffix_counter[elem])}'
+            for elem in gdf.index]
+    gdf.index = index2
+
     gdf_grid = nlmod.grid.gdf_to_grid(gdf.loc[:, ["summer_stage", "winter_stage", "geometry"]], gwf)
     fields_methods = {
         "summer_stage": "area_weighted",
