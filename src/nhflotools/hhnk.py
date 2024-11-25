@@ -1,5 +1,5 @@
 """
-Created on Mon Jun 29 15:18:06 2020
+Created on Mon Jun 29 15:18:06 2020.
 
 @author: Artesia
 """
@@ -39,8 +39,7 @@ def get_locations(
         raise (Exception(r.text))
     # make a GeoDataFrame
     df = pd.DataFrame(r.json()["locations"]).set_index("locationId")
-    gdf = result_to_gdf(df)
-    return gdf
+    return result_to_gdf(df)
 
 
 def get_timeseries(
@@ -90,8 +89,7 @@ def get_timeseries(
         else:
             events.append(None)
     df["events"] = events
-    gdf = result_to_gdf(df)
-    return gdf
+    return result_to_gdf(df)
 
 
 def result_to_gdf(df):
