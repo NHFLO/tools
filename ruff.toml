@@ -28,14 +28,27 @@ exclude = [".git", ".mypy_cache", ".ruff_cache", ".venv", ".direnv",
     "venv",
 ]
 
-extend-include = ["*.ipynb"]
+target-version = "py311"
 
 [format]
 preview = true
 
 [lint]
 preview = true
-extend-select = ["D"]
+
+# Documentation and ensure that the defaults are included
+extend-select = ["D", "E4", "E7", "E9", "F", "C901"]
 
 [lint.pydocstyle]
 convention = "numpy"
+
+[lint.per-file-ignores]
+'modelscripts/**/*.py' = [
+    'INP001',  # Missing return type annotation for public function
+]
+"tests/**/test_*.py" = [
+    "S101", # asserts allowed in tests
+]
+"**/*.ipynb" = [
+    "B018", # allow notebooks printing out variables in the mid cell with variable names only
+]

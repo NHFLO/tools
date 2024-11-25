@@ -12,8 +12,8 @@ from scipy.interpolate import griddata
 from shapely.geometry import Point, Polygon
 
 
-def get_pwn_layer_model(modelgrid, shpdir, plot=False):
-    """Reads PWN shapefiles and converts to a layer model Dataset
+def get_pwn_layer_model(modelgrid, shpdir, plot=False):  # noqa: C901
+    """Read PWN shapefiles and convert to a layer model Dataset.
 
     Parameters
     ----------
@@ -71,10 +71,7 @@ def get_pwn_layer_model(modelgrid, shpdir, plot=False):
                 arr = np.full(len(modelgrid.xcellcenters), default)
 
             for i, row in poly.iterrows():
-                if not row.geometry.is_valid:
-                    geom = row.geometry.buffer(0.0)
-                else:
-                    geom = row.geometry
+                geom = row.geometry.buffer(0.0) if not row.geometry.is_valid else row.geometry
                 r = ix.intersect(geom)
 
                 # set zones with value from polygon
@@ -103,12 +100,12 @@ def get_pwn_layer_model(modelgrid, shpdir, plot=False):
                         xpts = np.array(modelgrid.xcellcenters)[r.cellids.astype(int)]
                         ypts = np.array(modelgrid.ycellcenters)[r.cellids.astype(int)]
 
-                    z, ss = ok.execute("points", xpts, ypts)
+                    z, _ss = ok.execute("points", xpts, ypts)
 
                     # arr[tuple(zip(*r.cellids))] = z
                     arr[r.cellids.astype(int)] = z
                 else:
-                    print(f"Did not parse {shpfolder}/{shpnam} {i}!")
+                    pass
 
             arrays.append(arr)
 
@@ -293,14 +290,12 @@ def get_pwn_layer_model(modelgrid, shpdir, plot=False):
     # create new dataset
     new_layer_ds = xr.Dataset(data_vars={"top": t_da, "bot": b_da, "kh": kh, "kv": kv})
 
-    new_layer_ds = new_layer_ds.assign_coords(coords={"layer": [f"hlc_{i}" for i in range(new_layer_ds.dims["layer"])]})
-
-    return new_layer_ds
+    return new_layer_ds.assign_coords(coords={"layer": [f"hlc_{i}" for i in range(new_layer_ds.dims["layer"])]})
 
 
 def update_layermodel(layermodel_orig, layermodel_update):
     """Updates the REGIS Holocene layer with information from a PWN layer
-    dataset
+    dataset.
 
 
     Parameters
@@ -406,7 +401,7 @@ def update_layermodel(layermodel_orig, layermodel_update):
         layermodel_update["kv"][lay] = xr.where(mask5, np.nan, layermodel_update["kv"][lay])
 
         if (mask2 * (~mask1)).sum() > 0:
-            print(f"regis holoceen snijdt door laag {layermodel_update.layer[lay].values}")
+            pass
 
     top_new[: len(layermodel_update.layer), :] = layermodel_update["top"].data
     top_new[len(layermodel_update.layer) :, :] = layermodel_orig["top"].data[layer_no + 1 :]
@@ -435,7 +430,7 @@ def update_layermodel(layermodel_orig, layermodel_update):
 
 
 def get_surface_water_bgt(oppwaterg, fname_bgt, gwf, cachedir="."):
-    """Read surface water data from a bgt geojson file
+    """Read surface water data from a bgt geojson file.
 
     Parameters
     ----------
@@ -464,18 +459,17 @@ def get_surface_water_bgt(oppwaterg, fname_bgt, gwf, cachedir="."):
     # put drains in most bgt-shapes at minimum surface level at watercourses
     fname_bgtg = os.path.join(cachedir, "bgt_waterdeel_grid.geojson")
     if os.path.isfile(fname_bgtg):
-        print("Loading gridded surface water data from cache.")
         # read bgtg from cache
         bgtg = gpd.read_file(fname_bgtg).set_index("index")
         bgtg = bgtg.set_crs(epsg=28992, allow_override=True)
     else:
         if os.path.isfile(fname_bgt):
             # read bgt from cache
-            print("Loading surface water data from data directory.")
             bgt = gpd.read_file(fname_bgt).set_index("index")
             bgt = bgt.set_crs(epsg=28992, allow_override=True)
         else:
-            raise FileNotFoundError("No stored surface water data!" f" {fname_bgt}")
+            msg = "No stored surface water data!" f" {fname_bgt}"
+            raise FileNotFoundError(msg)
 
         # set the index to the unique column of lokaalID
         bgt = bgt.set_index("lokaalID")
@@ -543,7 +537,7 @@ def get_surface_water_bgt(oppwaterg, fname_bgt, gwf, cachedir="."):
         "W0651.45b659b8d5254f4eb2a4dc440cd464b2",
     ])
     # some ponds near the sea
-    bgtg = bgtg.drop([
+    return bgtg.drop([
         "G0373.88944c1bb9e14bdfb35dc46d2c6eff70",
         "W0651.15d7bba7d7b9462d9585095d7407cd80",
         "W0651.e74ba578b2c14f349e72f8d301500dde",
@@ -552,8 +546,6 @@ def get_surface_water_bgt(oppwaterg, fname_bgt, gwf, cachedir="."):
         "W0651.2d134bd13ad94d8bb6977140fe8bf4ab",
         "G0373.ab88b1eb82da4831be36b6a785ff7ec4",
     ])
-
-    return bgtg
 
 
 def line2hfb(gdf, gwf, prevent_rings=True, plot=False):
@@ -673,7 +665,7 @@ def line2hfb(gdf, gwf, prevent_rings=True, plot=False):
 
 
 def plot_hfb(cellids, gwf, ax=None):
-    """Plots a horizontal flow barrier
+    """Plots a horizontal flow barrier.
 
     Parameters
     ----------
@@ -694,7 +686,7 @@ def plot_hfb(cellids, gwf, ax=None):
 
     """
     if ax is None:
-        fig, ax = plt.subplots()
+        _fig, ax = plt.subplots()
 
     if isinstance(cellids, flopy.mf6.ModflowGwfhfb):
         spd = cellids.stress_period_data.data[0]

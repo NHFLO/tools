@@ -1,5 +1,5 @@
 """
-Created on Wed Sep 12 12:15:42 2018
+Created on Wed Sep 12 12:15:42 2018.
 
 @author: Artesia
 """
@@ -30,7 +30,7 @@ def colorbar_inside(mappable=None, ax=None, width=0.2, height="90%", loc=5, **kw
         ax = plt.gca()
     cax = inset_axes(ax, width=width, height=height, loc=loc)
     cb = plt.colorbar(mappable, cax=cax, ax=ax, **kw)
-    if loc == 1 or loc == 4 or loc == 5:
+    if loc in {1, 4, 5}:
         cax.yaxis.tick_left()
         cax.yaxis.set_label_position("left")
     return cb
@@ -51,7 +51,7 @@ def title_inside(title, ax=None, x=0.5, y=0.98, **kwargs):
 
 
 def geodataframe2grid(mf, shp_in):
-    """Cut a geodataframe shp_in by the grid of a modflow model ml"""
+    """Cut a geodataframe shp_in by the grid of a modflow model ml."""
     geom_col_name = shp_in._geometry_column_name
 
     # make a polygon for each of the grid-cells
@@ -69,7 +69,7 @@ def geodataframe2grid(mf, shp_in):
 
     shp_list = []
     # cut the lines with the grid
-    for index, row in shp_in.iterrows():
+    for _index, row in shp_in.iterrows():
         g = row[geom_col_name]
         result = s.query(g)
         for r in result:
@@ -89,7 +89,8 @@ def geodataframe2grid2(gdf, mgrid=None, grid_ix=None, keepcols=None, progressbar
     if grid_ix is None and mgrid is not None:
         grid_ix = flopy.utils.GridIntersect(mgrid, method="vertex")
     elif grid_ix is None and mgrid is None:
-        raise ValueError("Provide either 'mgrid' or 'grid_ix'!")
+        msg = "Provide either 'mgrid' or 'grid_ix'!"
+        raise ValueError(msg)
 
     reclist = []
 
@@ -103,7 +104,10 @@ def geodataframe2grid2(gdf, mgrid=None, grid_ix=None, keepcols=None, progressbar
 
         if keepcols is not None:
             dtypes = gdf.dtypes.loc[keepcols].to_list()
-            val_arrs = [ival * np.ones(r.shape[0], dtype=idtype) for ival, idtype in zip(row.loc[keepcols], dtypes)]
+            val_arrs = [
+                ival * np.ones(r.shape[0], dtype=idtype)
+                for ival, idtype in zip(row.loc[keepcols], dtypes, strict=False)
+            ]
             r = append_fields(r, keepcols, val_arrs, dtypes, usemask=False, asrecarray=True)
         if r.shape[0] > 0:
             reclist.append(r)
@@ -115,11 +119,11 @@ def geodataframe2grid2(gdf, mgrid=None, grid_ix=None, keepcols=None, progressbar
 
 
 def _add_shapes_to_list(i, geometryType, geom_col_name, row, shp_list, r):
-    """Subfunction of geodataframe2grid"""
+    """Subfunction of geodataframe2grid."""
     if geometryType == "LineString":
         if not i.is_empty:
             it = i.geometryType()
-            if it == "GeometryCollection" or it == "MultiLineString":
+            if it in {"GeometryCollection", "MultiLineString"}:
                 for im in i.geoms:
                     _add_shapes_to_list(im, geometryType, geom_col_name, row, shp_list, r)
             elif it == "LineString":
@@ -139,9 +143,9 @@ def _add_shapes_to_list(i, geometryType, geom_col_name, row, shp_list, r):
                 pass
             else:
                 raise NotImplementedError("geometryType " + it + " not yet supprted in geodataframe2grid")
-    elif geometryType == "Polygon" or geometryType == "MultiPolygon":
+    elif geometryType in {"Polygon", "MultiPolygon"}:
         it = i.geometryType()
-        if it == "GeometryCollection" or it == "MultiPolygon":
+        if it in {"GeometryCollection", "MultiPolygon"}:
             for im in i.geoms:
                 _add_shapes_to_list(im, geometryType, geom_col_name, row, shp_list, r)
         elif it == "Polygon":
@@ -153,7 +157,7 @@ def _add_shapes_to_list(i, geometryType, geom_col_name, row, shp_list, r):
         elif it == "Point":
             # endpoint of the polygon is on the cell-edge
             pass
-        elif it == "LineString" or it == "MultiLineString":
+        elif it in {"LineString", "MultiLineString"}:
             # one of the edges of the polygon is on a cell-egde
             pass
         else:
@@ -204,7 +208,7 @@ def refine_grid(ml, xe_new, ye_new):
         set_util3d(pack, parnam, val_new, val_old.dtype)
 
     for pack in packages:
-        if pack in ["PCG", "OC"]:
+        if pack in {"PCG", "OC"}:
             # packages have no spatial component
             pass
 
@@ -246,7 +250,7 @@ def refine_grid(ml, xe_new, ye_new):
 
 
 def unzip_file(src, dst, force=False, preserve_datetime=False):
-    """Unzip file
+    """Unzip file.
 
     Parameters
     ----------
@@ -265,15 +269,13 @@ def unzip_file(src, dst, force=False, preserve_datetime=False):
         1 of True
 
     """
-    if os.path.exists(dst):
-        if not force:
-            print("File not unzipped. Destination already exists. " "Use 'force=True' to unzip.")
-            return
+    if os.path.exists(dst) and not force:
+        return
     if preserve_datetime:
         zipf = zipfile.ZipFile(src, "r")
         for f in zipf.infolist():
             zipf.extract(f, path=dst)
-            date_time = time.mktime(f.date_time + (0, 0, -1))
+            date_time = time.mktime((*f.date_time, 0, 0, -1))
             os.utime(os.path.join(dst, f.filename), (date_time, date_time))
         zipf.close()
     else:
@@ -284,7 +286,7 @@ def unzip_file(src, dst, force=False, preserve_datetime=False):
 
 
 def df2gdf(df, xcol="x", ycol="y"):
-    """Convert DataFrame to a point GeoDataFrame
+    """Convert DataFrame to a point GeoDataFrame.
 
     Parameters
     ----------
@@ -299,8 +301,7 @@ def df2gdf(df, xcol="x", ycol="y"):
     -------
     gdf : geopandas.GeoDataFrame
     """
-    gdf = gpd.GeoDataFrame(df.copy(), geometry=[Point((s[xcol], s[ycol])) for i, s in df.iterrows()])
-    return gdf
+    return gpd.GeoDataFrame(df.copy(), geometry=[Point((s[xcol], s[ycol])) for i, s in df.iterrows()])
 
 
 def get_mt3d_results(f, kstpkper=(0, 0), mflay=0, inact=1e30):
@@ -339,7 +340,7 @@ def unzip_changed_files(zipname, pathname, check_time=True, check_size=False, de
             extract = False
             if os.path.exists(fname):
                 if check_time:
-                    tz = time.mktime(info.date_time + (0, 0, -1))
+                    tz = time.mktime((*info.date_time, 0, 0, -1))
                     tf = os.path.getmtime(fname)
                     if tz != tf:
                         extract = True
@@ -352,16 +353,16 @@ def unzip_changed_files(zipname, pathname, check_time=True, check_size=False, de
                 extract = True
             if extract:
                 if debug:
-                    print(f"extracting {info.filename}")
+                    pass
                 zf.extract(info.filename, pathname)
                 # set the correct modification time
                 # (which is the time of extraction by default)
-                tz = time.mktime(info.date_time + (0, 0, -1))
+                tz = time.mktime((*info.date_time, 0, 0, -1))
                 os.utime(os.path.join(pathname, info.filename), (tz, tz))
 
 
 def interp_weights(xy, uv, d=2):
-    """Calculate interpolation weights
+    """Calculate interpolation weights.
 
     Parameters
     ----------
@@ -424,7 +425,7 @@ def interpolate(values, vtx, wts):
 
 
 def inpolygon(x, y, polygon, engine="matplotlib"):
-    """Find out which points defined by x and y are within polygon
+    """Find out which points defined by x and y are within polygon.
 
     Parameters
     ----------
@@ -444,25 +445,27 @@ def inpolygon(x, y, polygon, engine="matplotlib"):
 
     """
     shape = x.shape
-    points = list(zip(x.flatten(), y.flatten()))
+    points = list(zip(x.flatten(), y.flatten(), strict=False))
     if engine == "matplotlib":
         if isinstance(polygon, MultiPolygon):
             mask = np.full((len(points)), False)
             for pol2 in polygon:
                 if not isinstance(pol2, Polygon):
-                    raise (Exception(f"{type(pol2)} not supported"))
+                    msg = f"{type(pol2)} not supported"
+                    raise (Exception(msg))
                 if isinstance(pol2.boundary, MultiLineString):
                     xb, yb = pol2.boundary[0].xy
                 else:
                     xb, yb = pol2.boundary.xy
-                path = Path(list(zip(xb, yb)))
-                mask = mask | path.contains_points(points)
+                path = Path(list(zip(xb, yb, strict=False)))
+                mask |= path.contains_points(points)
         elif isinstance(polygon, Polygon):
             xb, yb = polygon.boundary.xy
-            path = Path(list(zip(xb, yb)))
+            path = Path(list(zip(xb, yb, strict=False)))
             mask = path.contains_points(points)
         else:
-            raise (Exception(f"{type(polygon)} not supported"))
+            msg = f"{type(polygon)} not supported"
+            raise (Exception(msg))
     else:
         mask = [polygon.contains(Point(x, y)) for x, y in points]
         mask = np.array(mask)
@@ -470,13 +473,12 @@ def inpolygon(x, y, polygon, engine="matplotlib"):
 
 
 def extent2polygon(extent):
-    """Make a Polygon of the extent of a matplotlib axes"""
+    """Make a Polygon of the extent of a matplotlib axes."""
     nw = (extent[0], extent[2])
     no = (extent[1], extent[2])
     zo = (extent[1], extent[3])
     zw = (extent[0], extent[3])
-    polygon = Polygon([nw, no, zo, zw])
-    return polygon
+    return Polygon([nw, no, zo, zw])
 
 
 def rotate_yticklabels(ax):
@@ -485,7 +487,7 @@ def rotate_yticklabels(ax):
 
 
 def rd_ticks(ax, base=1000.0, fmt_base=1000, fmt="{:.0f}"):
-    """Add ticks every 1000 (base) m, and divide ticklabels by 1000 (fmt_base)"""
+    """Add ticks every 1000 (base) m, and divide ticklabels by 1000 (fmt_base)."""
 
     def fmt_rd_ticks(x, y):
         return fmt.format(x / fmt_base)

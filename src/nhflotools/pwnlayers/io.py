@@ -244,7 +244,7 @@ def _read_bergen_basis_aquitards(
             _multipolygon = MultiPolygon(
                 gdf_krieg.geometry.explode("geometry", index_parts=True).values
             )  # returns Polygon or MultiPolygon
-            _multipolygonl = [g for g in make_valid(_multipolygon).geoms if isinstance(g, (MultiPolygon, Polygon))]
+            _multipolygonl = [g for g in make_valid(_multipolygon).geoms if isinstance(g, MultiPolygon | Polygon)]
             if len(_multipolygonl) != 1:
                 msg = "MultiPolygons in multipolygon"
                 raise ValueError(msg)
@@ -391,7 +391,7 @@ def _read_bergen_thickness_aquitards(
             _multipolygon = MultiPolygon(
                 gdf_krieg.geometry.explode("geometry", index_parts=True).values
             )  # returns Polygon or MultiPolygon
-            _multipolygonl = [g for g in make_valid(_multipolygon).geoms if isinstance(g, (MultiPolygon, Polygon))]
+            _multipolygonl = [g for g in make_valid(_multipolygon).geoms if isinstance(g, MultiPolygon | Polygon)]
 
             if len(_multipolygonl) != 1:
                 msg = "MultiPolygons in multipolygon"

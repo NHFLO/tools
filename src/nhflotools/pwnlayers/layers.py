@@ -257,6 +257,7 @@ def get_top_from_ahn(
         zip(
             top.y.sel(icell2d=top.notnull()).values,
             top.x.sel(icell2d=top.notnull()).values,
+            strict=False,
         )
     )
     values = top.sel(icell2d=top.notnull()).values
@@ -264,6 +265,7 @@ def get_top_from_ahn(
         zip(
             top.y.sel(icell2d=top.isnull()).values,
             top.x.sel(icell2d=top.isnull()).values,
+            strict=False,
         )
     )
     qvalues = griddata(points=points, values=values, xi=qpoints, method=method_elsewhere)
@@ -489,7 +491,7 @@ def combine_two_layer_models(
 
     if layer_model_regis.layer.str.contains("_").any():
         # TODO: if previously combined layer_model needs to be split for a second time
-        split_counts_regis_cur = dict(zip(*np.unique(basenames_regis, return_counts=True)))
+        split_counts_regis_cur = dict(zip(*np.unique(basenames_regis, return_counts=True), strict=False))
         assert all(
             v == split_counts_regis_cur[k] for k, v in split_counts_regis_def.items()
         ), "Previously combined REGIS layers should be split in the same number of layers as before."
@@ -626,6 +628,7 @@ def combine_two_layer_models(
                 zip(
                     thick_ratio_other.coords["x"].sel(icell2d=mask).values,
                     thick_ratio_other.coords["y"].sel(icell2d=mask).values,
+                    strict=False,
                 )
             )
             gridpoint_values = thick_ratio_other.sel(layer=layer, icell2d=mask).values
@@ -633,6 +636,7 @@ def combine_two_layer_models(
                 zip(
                     thick_ratio_other.coords["x"].sel(icell2d=~mask).values,
                     thick_ratio_other.coords["y"].sel(icell2d=~mask).values,
+                    strict=False,
                 )
             )
             qvalues = griddata(
@@ -777,6 +781,7 @@ def combine_two_layer_models(
                     zip(
                         vari.coords["x"].sel(icell2d=~transi).values,
                         vari.coords["y"].sel(icell2d=~transi).values,
+                        strict=False,
                     )
                 )
                 gridpoint_values = vari.sel(icell2d=~transi).values
@@ -784,6 +789,7 @@ def combine_two_layer_models(
                     zip(
                         vari.coords["x"].sel(icell2d=transi).values,
                         vari.coords["y"].sel(icell2d=transi).values,
+                        strict=False,
                     )
                 )
                 qvalues = griddata(
