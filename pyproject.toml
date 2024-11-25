@@ -68,7 +68,7 @@ format = [
   "ruff format src/nhflotools/*.py tests"
 ]
 lint = [
-  "ruff check tests/test_pwnlayers.py src/nhflotools/pwnlayers src/nhflotools/major_surface_waters.py src/nhflotools/nhi_chloride.py src/nhflotools/panden.py src/nhflotools/polder.py src/nhflotools/well.py}"
+  "ruff check tests/test_pwnlayers.py src/nhflotools/pwnlayers src/nhflotools/major_surface_waters.py src/nhflotools/nhi_chloride.py src/nhflotools/panden.py src/nhflotools/polder.py src/nhflotools/well.py"
 ]
 lintminimal = ["ruff check src/nhflotools/pwnlayers src/nhflotools/major_surface_waters.py src/nhflotools/nhi_chloride.py src/nhflotools/panden.py src/nhflotools/polder.py src/nhflotools/well.py --config \"lint.select=['E4', 'E7', 'E9', 'F']\""]
 
