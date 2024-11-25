@@ -256,14 +256,16 @@ def get_top_from_ahn(
     points = list(
         zip(
             top.y.sel(icell2d=top.notnull()).values,
-            top.x.sel(icell2d=top.notnull()).values, strict=False,
+            top.x.sel(icell2d=top.notnull()).values,
+            strict=False,
         )
     )
     values = top.sel(icell2d=top.notnull()).values
     qpoints = list(
         zip(
             top.y.sel(icell2d=top.isnull()).values,
-            top.x.sel(icell2d=top.isnull()).values, strict=False,
+            top.x.sel(icell2d=top.isnull()).values,
+            strict=False,
         )
     )
     qvalues = griddata(points=points, values=values, xi=qpoints, method=method_elsewhere)
@@ -625,14 +627,16 @@ def combine_two_layer_models(
             griddata_points = list(
                 zip(
                     thick_ratio_other.coords["x"].sel(icell2d=mask).values,
-                    thick_ratio_other.coords["y"].sel(icell2d=mask).values, strict=False,
+                    thick_ratio_other.coords["y"].sel(icell2d=mask).values,
+                    strict=False,
                 )
             )
             gridpoint_values = thick_ratio_other.sel(layer=layer, icell2d=mask).values
             qpoints = list(
                 zip(
                     thick_ratio_other.coords["x"].sel(icell2d=~mask).values,
-                    thick_ratio_other.coords["y"].sel(icell2d=~mask).values, strict=False,
+                    thick_ratio_other.coords["y"].sel(icell2d=~mask).values,
+                    strict=False,
                 )
             )
             qvalues = griddata(
@@ -776,14 +780,16 @@ def combine_two_layer_models(
                 griddata_points = list(
                     zip(
                         vari.coords["x"].sel(icell2d=~transi).values,
-                        vari.coords["y"].sel(icell2d=~transi).values, strict=False,
+                        vari.coords["y"].sel(icell2d=~transi).values,
+                        strict=False,
                     )
                 )
                 gridpoint_values = vari.sel(icell2d=~transi).values
                 qpoints = list(
                     zip(
                         vari.coords["x"].sel(icell2d=transi).values,
-                        vari.coords["y"].sel(icell2d=transi).values, strict=False,
+                        vari.coords["y"].sel(icell2d=transi).values,
+                        strict=False,
                     )
                 )
                 qvalues = griddata(

@@ -104,7 +104,10 @@ def geodataframe2grid2(gdf, mgrid=None, grid_ix=None, keepcols=None, progressbar
 
         if keepcols is not None:
             dtypes = gdf.dtypes.loc[keepcols].to_list()
-            val_arrs = [ival * np.ones(r.shape[0], dtype=idtype) for ival, idtype in zip(row.loc[keepcols], dtypes, strict=False)]
+            val_arrs = [
+                ival * np.ones(r.shape[0], dtype=idtype)
+                for ival, idtype in zip(row.loc[keepcols], dtypes, strict=False)
+            ]
             r = append_fields(r, keepcols, val_arrs, dtypes, usemask=False, asrecarray=True)
         if r.shape[0] > 0:
             reclist.append(r)

@@ -293,7 +293,6 @@ def get_pwn_layer_model(modelgrid, shpdir, plot=False):
     return new_layer_ds.assign_coords(coords={"layer": [f"hlc_{i}" for i in range(new_layer_ds.dims["layer"])]})
 
 
-
 def update_layermodel(layermodel_orig, layermodel_update):
     """Updates the REGIS Holocene layer with information from a PWN layer
     dataset.
@@ -547,7 +546,6 @@ def get_surface_water_bgt(oppwaterg, fname_bgt, gwf, cachedir="."):
         "W0651.2d134bd13ad94d8bb6977140fe8bf4ab",
         "G0373.ab88b1eb82da4831be36b6a785ff7ec4",
     ])
-
 
 
 def line2hfb(gdf, gwf, prevent_rings=True, plot=False):
