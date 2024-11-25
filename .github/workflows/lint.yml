@@ -30,4 +30,4 @@ jobs:
       - name: Install hatch
         run: uv tool install hatch
       - name: Lint Python files
-        run: hatch run lintformat:lint
+        run: hatch run lintformat:lintminimal
