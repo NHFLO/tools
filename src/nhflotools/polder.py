@@ -1,3 +1,6 @@
+import itertools
+from collections import Counter, defaultdict
+
 import nlmod
 import numpy as np
 import scipy.interpolate as si
