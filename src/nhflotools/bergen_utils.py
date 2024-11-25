@@ -12,8 +12,8 @@ from scipy.interpolate import griddata
 from shapely.geometry import Point, Polygon
 
 
-def get_pwn_layer_model(modelgrid, shpdir, plot=False):
-    """Reads PWN shapefiles and converts to a layer model Dataset.
+def get_pwn_layer_model(modelgrid, shpdir, plot=False):  # noqa: C901
+    """Read PWN shapefiles and convert to a layer model Dataset.
 
     Parameters
     ----------
