@@ -100,13 +100,14 @@ class GeoConverter:
         if output_path is None:
             output_path = input_path.with_suffix(".geojson")
         output_path = Path(output_path)
-        gdf.to_file(output_path, driver="GeoJSON", coordinate_precision=coordinate_precision)
+        gdf.to_file(output_path, driver="GeoJSON", coordinate_precision=coordinate_precision, write_bbox="yes")
         return output_path
 
     def convert_folder(
         self,
         input_folder: str | Path,
-        output_folder: str | Path | None = None
+        output_folder: str | Path | None = None,
+        coordinate_precision: int = 2,
     ) -> dict[str, list[Path]]:
         """
         Convert all supported files in a folder structure to GeoJSON format and copy all other files to maintain complete folder structure.
@@ -155,7 +156,7 @@ class GeoConverter:
                 output_path.parent.mkdir(parents=True, exist_ok=True)
 
                 # Convert file
-                converted_path = self.convert_file(input_file, output_path)
+                converted_path = self.convert_file(input_file, output_path, coordinate_precision=coordinate_precision)
                 results['converted'].append(converted_path)
 
             except Exception:  # noqa: BLE001
