@@ -34,6 +34,8 @@ class GeoConverter:
         ".json": "GeoJSON",
         ".csv": "CSV",
         ".xlsx": "Excel",
+        ".xls": "Excel",
+        ".ods": "OpenDocument Spreadsheet",
     }
 
     def __init__(self, target_crs: str = "EPSG:28992", rounding_interval: int = 1000):
@@ -43,46 +45,62 @@ class GeoConverter:
 
     def convert_file(
         self,
-        input_path: str | Path,
+        gdf: gpd.GeoDataFrame | None = None,
+        input_path: str | Path | None = None,
         output_path: str | Path | None = None,
         x_column: str | None = None,
         y_column: str | None = None,
         wkt_column: str | None = None,
+        coordinate_precision: int = 2,
     ) -> Path:
         """Convert a single file to GeoJSON format."""
-        input_path = Path(input_path)
-        if input_path.suffix.lower() not in self.SUPPORTED_FORMATS:
-            msg = f"Unsupported format: {input_path.suffix}"
+        if gdf is None == input_path is None:
+            msg = "Either GeoDataFrame or input path must be provided"
             raise GeoProcessingError(msg)
 
-        if output_path is None:
-            output_path = input_path.with_suffix(".geojson")
-        output_path = Path(output_path)
-
-        # Read input file
-        if input_path.suffix.lower() in {'.csv', '.xls', '.xlsx', '.ods'}:
-            gdf = read_tabular(
-                input_path,
-                x_column,
-                y_column,
-                wkt_column
-            )
+        if gdf is not None:
+            gdf = gpd.GeoDataFrame(gdf).copy()
         else:
-            # For all other formats, use standard GeoPandas reading
-            gdf = gpd.read_file(input_path)
+            input_path = Path(input_path)
+            if input_path.suffix.lower() not in self.SUPPORTED_FORMATS:
+                msg = f"Unsupported format: {input_path.suffix}"
+                raise GeoProcessingError(msg)
+
+            # Read input file
+            if input_path.suffix.lower() in {'.csv', '.xls', '.xlsx', '.ods'}:
+                gdf = read_tabular(
+                    input_path,
+                    x_column,
+                    y_column,
+                    wkt_column
+                )
+            else:
+                # For all other formats, use standard GeoPandas reading
+                gdf = gpd.read_file(input_path)
 
         # Process GeoDataFrame
+        if gdf.layer_keys():
+            msg = "Multiple layers in GeoDataFrame not supported"
+            raise GeoProcessingError(msg)
+
         gdf = gdf.to_crs(self.target_crs)
 
-        # Format and optimize
+        # Format and optimize geometries
         gdf.geometry = gdf.geometry.make_valid()
         gdf = gdf[~gdf.geometry.is_empty]
         gdf = gdf.dropna(subset=["geometry"])
-        gdf.geometry = gdf.geometry.simplify(tolerance=0.01, preserve_topology=True)
+        gdf = gdf.set_precision(coordinate_precision, mode="valid_output")
+        tolerance = 10 ** -coordinate_precision
+        gdf.geometry = gdf.geometry.simplify(tolerance=tolerance, preserve_topology=True)
+
+        # Optimize DataFrame
         gdf = optimize_dataframe(gdf, exclude_columns=["geometry"])
 
         # Save output
-        gdf.to_file(output_path, driver="GeoJSON")
+        if output_path is None:
+            output_path = input_path.with_suffix(".geojson")
+        output_path = Path(output_path)
+        gdf.to_file(output_path, driver="GeoJSON", coordinate_precision=coordinate_precision)
         return output_path
 
     def convert_folder(

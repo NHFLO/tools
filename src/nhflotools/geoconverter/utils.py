@@ -141,4 +141,4 @@ def read_tabular(
     else:
         msg = "No geometry information provided for tabular data"
         raise ValueError(msg)
-    return gpd.GeoDataFrame(df, geometry=geometry)
+    return gpd.GeoDataFrame(df, geometry=geometry, crs=self.target_crs)
