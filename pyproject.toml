@@ -48,7 +48,6 @@ readme = "README.md"
 requires-python = "==3.11"
 
 [project.optional-dependencies]
-dev = ["hatch", "pytest", "ruff"]
 lintformat = [
   "hatch",
   "ruff==0.6.8",
