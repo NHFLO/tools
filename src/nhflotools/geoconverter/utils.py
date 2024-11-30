@@ -54,10 +54,30 @@ def optimize_dataframe(df: pd.DataFrame, exclude_columns: list[str] | None = Non
     exclude_columns = exclude_columns or []
     result = df.copy()
 
+    # Remove duplicate columns
+    for dup_name in result.columns[result.columns.duplicated()]:
+        a = result.loc[:, dup_name].values
+        if ~np.all(a == a[:, [0]]):
+            msg = f"Duplicate column '{dup_name}' has different values"
+            raise ValueError(msg)
+
+    result = result.loc[:, ~result.columns.duplicated()]
+
+    # remove nonsense columns
+    if len(result) > 1:
+        result = result.loc[:, ~result.isnull().all(axis=0)]
+
+        # remove columns with predictable indices
+        mask = np.arange(len(result))[:, None] == result
+        result = result.loc[:, ~mask.all(axis=0)]
+
+        mask = np.arange(1, len(result) + 1)[:, None] == result
+        result = result.loc[:, ~mask.all(axis=0)]
+
     for col in result.columns:
         if col in exclude_columns:
             continue
-        col_type = result[col].dtype
+        col_type = result.dtypes[col]
         if col_type == "object":
             if result[col].nunique() / len(result) < use_cat_threshold:
                 result[col] = result[col].astype("category")
