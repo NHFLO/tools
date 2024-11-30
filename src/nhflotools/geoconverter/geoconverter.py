@@ -31,11 +31,11 @@ class GeoConverter:
         ".shp": "Shapefile",
         ".gpkg": "GeoPackage",
         ".geojson": "GeoJSON",
-        ".json": "GeoJSON",
-        ".csv": "CSV",
-        ".xlsx": "Excel",
-        ".xls": "Excel",
-        ".ods": "OpenDocument Spreadsheet",
+        # ".json": "GeoJSON",
+        # ".csv": "CSV",
+        # ".xlsx": "Excel",
+        # ".xls": "Excel",
+        # ".ods": "OpenDocument Spreadsheet",
     }
 
     def __init__(self, target_crs: str = "EPSG:28992", rounding_interval: int = 1000):
@@ -51,7 +51,7 @@ class GeoConverter:
         x_column: str | None = None,
         y_column: str | None = None,
         wkt_column: str | None = None,
-        coordinate_precision: int = 2,
+        coordinate_precision: int = 0.01,
     ) -> Path:
         """Convert a single file to GeoJSON format."""
         if gdf is None == input_path is None:
@@ -76,22 +76,23 @@ class GeoConverter:
                 )
             else:
                 # For all other formats, use standard GeoPandas reading
+                if len(gpd.list_layers(input_path)) != 1:
+                    msg = "Multiple layers in file not supported"
+                    raise GeoProcessingError(msg)
                 gdf = gpd.read_file(input_path)
+                if gdf.crs is None:
+                    gdf.crs = self.target_crs
 
         # Process GeoDataFrame
-        if gdf.layer_keys():
-            msg = "Multiple layers in GeoDataFrame not supported"
-            raise GeoProcessingError(msg)
-
         gdf = gdf.to_crs(self.target_crs)
 
         # Format and optimize geometries
-        gdf.geometry = gdf.geometry.make_valid()
         gdf = gdf[~gdf.geometry.is_empty]
         gdf = gdf.dropna(subset=["geometry"])
-        gdf = gdf.set_precision(coordinate_precision, mode="valid_output")
-        tolerance = 10 ** -coordinate_precision
-        gdf.geometry = gdf.geometry.simplify(tolerance=tolerance, preserve_topology=True)
+        geometry = gdf.make_valid()
+        geometry = geometry.set_precision(coordinate_precision, mode="valid_output")
+        geometry = geometry.simplify(tolerance=coordinate_precision, preserve_topology=True)
+        gdf.set_geometry(geometry, inplace=True)
 
         # Optimize DataFrame
         gdf = optimize_dataframe(gdf, exclude_columns=["geometry"])
@@ -100,7 +101,7 @@ class GeoConverter:
         if output_path is None:
             output_path = input_path.with_suffix(".geojson")
         output_path = Path(output_path)
-        gdf.to_file(output_path, driver="GeoJSON", coordinate_precision=coordinate_precision, write_bbox="yes")
+        gdf.to_file(output_path, driver="GeoJSON", coordinate_precision=coordinate_precision, write_bbox="no")
         return output_path
 
     def convert_folder(
@@ -141,11 +142,14 @@ class GeoConverter:
         for ext in self.SUPPORTED_FORMATS:
             convertible_files.extend(input_folder.rglob(f'*{ext}'))
 
+        excluded_shape_extensions = {".sbn", ".sbx", ".shx", ".dbf", ".prj", ".shp.xml", ".cpg", ".qix", ".qpj"}
+        excl_convertable_shape_files = {f.with_suffix(s) for f in convertible_files for s in excluded_shape_extensions}
+
         # Find all other files
         all_files = set(input_folder.rglob('*'))
         other_files = {
             f for f in all_files
-            if f.is_file() and f not in convertible_files
+            if f.is_file() and f not in convertible_files and f not in excl_convertable_shape_files
         }
 
         for input_file in convertible_files:
@@ -156,11 +160,12 @@ class GeoConverter:
                 output_path.parent.mkdir(parents=True, exist_ok=True)
 
                 # Convert file
-                converted_path = self.convert_file(input_file, output_path, coordinate_precision=coordinate_precision)
+                converted_path = self.convert_file(input_path=input_file, output_path=output_path, coordinate_precision=coordinate_precision)
                 results['converted'].append(converted_path)
 
             except Exception:  # noqa: BLE001
                 results['failed'].append(input_file)
+                raise ValueError # Reraise exception for debugging
 
         # Copy other files
         for input_file in other_files:
@@ -231,7 +236,9 @@ def main():
     converter = GeoConverter()
 
     # Convert folder with all files
-    results = converter.convert_folder("input_folder", "output_folder")
+    input_folder = Path("/Users/bdestombe/Projects/NHFLO/data/src/nhflodata/data/mockup/bodemlagen_pwn_nhdz/v1.0.0")
+    output_folder = Path("/Users/bdestombe/Projects/NHFLO/data/src/nhflodata/data/mockup/bodemlagen_pwn_nhdz/v2.0.0")
+    results = converter.convert_folder(input_folder, output_folder, coordinate_precision=0.1)
 
     # Print results
 
