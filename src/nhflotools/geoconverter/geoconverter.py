@@ -9,6 +9,7 @@ from shutil import copy2
 from typing import ClassVar
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 
 from nhflotools.geoconverter.utils import (
@@ -52,6 +53,7 @@ class GeoConverter:
         y_column: str | None = None,
         wkt_column: str | None = None,
         coordinate_precision: int = 0.01,
+        overwrite_with_target_crs: bool = False,
     ) -> Path:
         """Convert a single file to GeoJSON format."""
         if gdf is None == input_path is None:
@@ -84,7 +86,13 @@ class GeoConverter:
                     gdf.crs = self.target_crs
 
         # Process GeoDataFrame
+        if overwrite_with_target_crs:
+            
+
         gdf = gdf.to_crs(self.target_crs)
+        if ~np.isfinite(gdf.geometry.total_bounds).all():
+            msg = "CRS conversion failed"
+            raise GeoProcessingError(msg)
 
         # Format and optimize geometries
         gdf = gdf[~gdf.geometry.is_empty]
@@ -101,7 +109,7 @@ class GeoConverter:
         if output_path is None:
             output_path = input_path.with_suffix(".geojson")
         output_path = Path(output_path)
-        gdf.to_file(output_path, driver="GeoJSON", coordinate_precision=coordinate_precision, write_bbox="no")
+        gdf.to_file(output_path, driver="GeoJSON", coordinate_precision=str(coordinate_precision), write_bbox="no")
         return output_path
 
     def convert_folder(
@@ -231,17 +239,8 @@ def validate_folder(folder_path: str | Path, rounding_interval: int = 1000) -> d
     return results
 
 
-def main():
-    """Demonstrate usage of the geographic processing suite."""
-    converter = GeoConverter()
-
-    # Convert folder with all files
-    input_folder = Path("/Users/bdestombe/Projects/NHFLO/data/src/nhflodata/data/mockup/bodemlagen_pwn_nhdz/v1.0.0")
-    output_folder = Path("/Users/bdestombe/Projects/NHFLO/data/src/nhflodata/data/mockup/bodemlagen_pwn_nhdz/v2.0.0")
-    results = converter.convert_folder(input_folder, output_folder, coordinate_precision=0.1)
-
-    # Print results
-
+def print_results(results):
+    """Print the conversion result to standard output."""
     if results['converted']:
         print("\nConverted files:")  # noqa: T201
         for path in results['converted']:
@@ -256,6 +255,28 @@ def main():
         print("\nFailed files:")  # noqa: T201
         for path in results['failed']:
             print(f"- {path}")  # noqa: T201
+
+def main():
+    """Demonstrate usage of the geographic processing suite."""
+    converter = GeoConverter()
+
+    # Convert folder with all files
+    mockup_path = Path("/Users/bdestombe/Projects/NHFLO/data/src/nhflodata/data/mockup")
+    input_folder = mockup_path / "doorsnedes_nh/v1.0.0"
+    output_folder = mockup_path / "doorsnedes_nh/v2.0.0"
+    results = converter.convert_folder(input_folder, output_folder, coordinate_precision=1)
+    print_results(results)
+
+    input_folder = mockup_path / "bodemlagen_pwn_nhdz/v1.0.0"
+    output_folder = mockup_path / "bodemlagen_pwn_nhdz/v2.0.0"
+    results = converter.convert_folder(input_folder, output_folder, coordinate_precision=1)
+    print_results(results)
+
+    # Convert folder with all files
+    input_folder = mockup_path / "bodemlagen_pwn_bergen/v1.0.0"
+    output_folder = mockup_path / "bodemlagen_pwn_bergen/v2.0.0"
+    results = converter.convert_folder(input_folder, output_folder, coordinate_precision=1)
+    print_results(results)
 
 if __name__ == "__main__":
     main()
