@@ -46,6 +46,7 @@ class GeoConverter:
 
     def convert_file(
         self,
+        *,
         gdf: gpd.GeoDataFrame | None = None,
         input_path: str | Path | None = None,
         output_path: str | Path | None = None,
@@ -86,13 +87,15 @@ class GeoConverter:
                     gdf.crs = self.target_crs
 
         # Process GeoDataFrame
-        if overwrite_with_target_crs:
-            
-
-        gdf = gdf.to_crs(self.target_crs)
-        if ~np.isfinite(gdf.geometry.total_bounds).all():
-            msg = "CRS conversion failed"
-            raise GeoProcessingError(msg)
+        _gdf = gdf.to_crs(self.target_crs)
+        if ~np.isfinite(_gdf.geometry.total_bounds).all():
+            if overwrite_with_target_crs:
+                gdf.crs = self.target_crs
+            else:
+                msg = "CRS conversion failed"
+                raise GeoProcessingError(msg)
+        else:
+            gdf = _gdf
 
         # Format and optimize geometries
         gdf = gdf[~gdf.geometry.is_empty]
@@ -114,9 +117,11 @@ class GeoConverter:
 
     def convert_folder(
         self,
+        *,
         input_folder: str | Path,
         output_folder: str | Path | None = None,
         coordinate_precision: int = 2,
+        overwrite_with_target_crs: bool = False,
     ) -> dict[str, list[Path]]:
         """
         Convert all supported files in a folder structure to GeoJSON format and copy all other files to maintain complete folder structure.
@@ -127,7 +132,8 @@ class GeoConverter:
             Root folder containing files to convert
         output_folder : Optional[Union[str, Path]]
             Root folder for output files. If None, creates 'converted' in input folder
-
+        c
+            
         Returns
         -------
         Dict[str, List[Path]]
@@ -150,7 +156,7 @@ class GeoConverter:
         for ext in self.SUPPORTED_FORMATS:
             convertible_files.extend(input_folder.rglob(f'*{ext}'))
 
-        excluded_shape_extensions = {".sbn", ".sbx", ".shx", ".dbf", ".prj", ".shp.xml", ".cpg", ".qix", ".qpj"}
+        excluded_shape_extensions = {".sbn", ".sbx", ".shx", ".dbf", ".prj", ".shp.xml", ".cpg", ".qix", ".qpj", ".par", ".ung"}
         excl_convertable_shape_files = {f.with_suffix(s) for f in convertible_files for s in excluded_shape_extensions}
 
         # Find all other files
@@ -168,12 +174,12 @@ class GeoConverter:
                 output_path.parent.mkdir(parents=True, exist_ok=True)
 
                 # Convert file
-                converted_path = self.convert_file(input_path=input_file, output_path=output_path, coordinate_precision=coordinate_precision)
+                converted_path = self.convert_file(input_path=input_file, output_path=output_path, coordinate_precision=coordinate_precision, overwrite_with_target_crs=overwrite_with_target_crs)
                 results['converted'].append(converted_path)
 
             except Exception:  # noqa: BLE001
                 results['failed'].append(input_file)
-                raise ValueError # Reraise exception for debugging
+                raise ValueError  # Reraise exception for debugging  # noqa: B904
 
         # Copy other files
         for input_file in other_files:
@@ -264,18 +270,18 @@ def main():
     mockup_path = Path("/Users/bdestombe/Projects/NHFLO/data/src/nhflodata/data/mockup")
     input_folder = mockup_path / "doorsnedes_nh/v1.0.0"
     output_folder = mockup_path / "doorsnedes_nh/v2.0.0"
-    results = converter.convert_folder(input_folder, output_folder, coordinate_precision=1)
+    results = converter.convert_folder(input_folder=input_folder, output_folder=output_folder, coordinate_precision=1, overwrite_with_target_crs=True)
     print_results(results)
 
     input_folder = mockup_path / "bodemlagen_pwn_nhdz/v1.0.0"
     output_folder = mockup_path / "bodemlagen_pwn_nhdz/v2.0.0"
-    results = converter.convert_folder(input_folder, output_folder, coordinate_precision=1)
+    results = converter.convert_folder(input_folder=input_folder, output_folder=output_folder, coordinate_precision=1)
     print_results(results)
 
     # Convert folder with all files
     input_folder = mockup_path / "bodemlagen_pwn_bergen/v1.0.0"
     output_folder = mockup_path / "bodemlagen_pwn_bergen/v2.0.0"
-    results = converter.convert_folder(input_folder, output_folder, coordinate_precision=1)
+    results = converter.convert_folder(input_folder=input_folder, output_folder=output_folder, coordinate_precision=1, overwrite_with_target_crs=True)
     print_results(results)
 
 if __name__ == "__main__":
