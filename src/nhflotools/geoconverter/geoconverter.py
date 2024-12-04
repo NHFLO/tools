@@ -70,13 +70,8 @@ class GeoConverter:
                 raise GeoProcessingError(msg)
 
             # Read input file
-            if input_path.suffix.lower() in {'.csv', '.xls', '.xlsx', '.ods'}:
-                gdf = read_tabular(
-                    input_path,
-                    x_column,
-                    y_column,
-                    wkt_column
-                )
+            if input_path.suffix.lower() in {".csv", ".xls", ".xlsx", ".ods"}:
+                gdf = read_tabular(input_path, x_column, y_column, wkt_column)
             else:
                 # For all other formats, use standard GeoPandas reading
                 if len(gpd.list_layers(input_path)) != 1:
@@ -133,7 +128,7 @@ class GeoConverter:
         output_folder : Optional[Union[str, Path]]
             Root folder for output files. If None, creates 'converted' in input folder
         c
-            
+
         Returns
         -------
         Dict[str, List[Path]]
@@ -141,44 +136,56 @@ class GeoConverter:
         """
         input_folder = Path(input_folder)
         if output_folder is None:
-            output_folder = input_folder / 'converted'
+            output_folder = input_folder / "converted"
         output_folder = Path(output_folder)
         output_folder.mkdir(parents=True, exist_ok=True)
 
-        results = {
-            'converted': [],
-            'copied': [],
-            'failed': []
-        }
+        results = {"converted": [], "copied": [], "failed": []}
 
         # Find all files recursively
         convertible_files = []
         for ext in self.SUPPORTED_FORMATS:
-            convertible_files.extend(input_folder.rglob(f'*{ext}'))
+            convertible_files.extend(input_folder.rglob(f"*{ext}"))
 
-        excluded_shape_extensions = {".sbn", ".sbx", ".shx", ".dbf", ".prj", ".shp.xml", ".cpg", ".qix", ".qpj", ".par", ".ung"}
+        excluded_shape_extensions = {
+            ".sbn",
+            ".sbx",
+            ".shx",
+            ".dbf",
+            ".prj",
+            ".shp.xml",
+            ".cpg",
+            ".qix",
+            ".qpj",
+            ".par",
+            ".ung",
+        }
         excl_convertable_shape_files = {f.with_suffix(s) for f in convertible_files for s in excluded_shape_extensions}
 
         # Find all other files
-        all_files = set(input_folder.rglob('*'))
+        all_files = set(input_folder.rglob("*"))
         other_files = {
-            f for f in all_files
-            if f.is_file() and f not in convertible_files and f not in excl_convertable_shape_files
+            f for f in all_files if f.is_file() and f not in convertible_files and f not in excl_convertable_shape_files
         }
 
         for input_file in convertible_files:
             try:
                 # Calculate relative path to maintain folder structure
                 rel_path = input_file.relative_to(input_folder)
-                output_path = output_folder / rel_path.with_suffix('.geojson')
+                output_path = output_folder / rel_path.with_suffix(".geojson")
                 output_path.parent.mkdir(parents=True, exist_ok=True)
 
                 # Convert file
-                converted_path = self.convert_file(input_path=input_file, output_path=output_path, coordinate_precision=coordinate_precision, overwrite_with_target_crs=overwrite_with_target_crs)
-                results['converted'].append(converted_path)
+                converted_path = self.convert_file(
+                    input_path=input_file,
+                    output_path=output_path,
+                    coordinate_precision=coordinate_precision,
+                    overwrite_with_target_crs=overwrite_with_target_crs,
+                )
+                results["converted"].append(converted_path)
 
             except Exception:  # noqa: BLE001
-                results['failed'].append(input_file)
+                results["failed"].append(input_file)
                 raise ValueError  # Reraise exception for debugging  # noqa: B904
 
         # Copy other files
@@ -189,10 +196,10 @@ class GeoConverter:
                 output_path.parent.mkdir(parents=True, exist_ok=True)
 
                 copy2(input_file, output_path)
-                results['copied'].append(output_path)
+                results["copied"].append(output_path)
 
             except Exception:  # noqa: BLE001
-                results['failed'].append(input_file)
+                results["failed"].append(input_file)
 
         return results
 
@@ -247,20 +254,21 @@ def validate_folder(folder_path: str | Path, rounding_interval: int = 1000) -> d
 
 def print_results(results):
     """Print the conversion result to standard output."""
-    if results['converted']:
+    if results["converted"]:
         print("\nConverted files:")  # noqa: T201
-        for path in results['converted']:
+        for path in results["converted"]:
             print(f"- {path}")  # noqa: T201
 
-    if results['copied']:
+    if results["copied"]:
         print("\nCopied files:")  # noqa: T201
-        for path in results['copied']:
+        for path in results["copied"]:
             print(f"- {path}")  # noqa: T201
 
-    if results['failed']:
+    if results["failed"]:
         print("\nFailed files:")  # noqa: T201
-        for path in results['failed']:
+        for path in results["failed"]:
             print(f"- {path}")  # noqa: T201
+
 
 def main():
     """Demonstrate usage of the geographic processing suite."""
@@ -270,7 +278,9 @@ def main():
     mockup_path = Path("/Users/bdestombe/Projects/NHFLO/data/src/nhflodata/data/mockup")
     input_folder = mockup_path / "doorsnedes_nh/v1.0.0"
     output_folder = mockup_path / "doorsnedes_nh/v2.0.0"
-    results = converter.convert_folder(input_folder=input_folder, output_folder=output_folder, coordinate_precision=1, overwrite_with_target_crs=True)
+    results = converter.convert_folder(
+        input_folder=input_folder, output_folder=output_folder, coordinate_precision=1, overwrite_with_target_crs=True
+    )
     print_results(results)
 
     input_folder = mockup_path / "bodemlagen_pwn_nhdz/v1.0.0"
@@ -281,8 +291,11 @@ def main():
     # Convert folder with all files
     input_folder = mockup_path / "bodemlagen_pwn_bergen/v1.0.0"
     output_folder = mockup_path / "bodemlagen_pwn_bergen/v2.0.0"
-    results = converter.convert_folder(input_folder=input_folder, output_folder=output_folder, coordinate_precision=1, overwrite_with_target_crs=True)
+    results = converter.convert_folder(
+        input_folder=input_folder, output_folder=output_folder, coordinate_precision=1, overwrite_with_target_crs=True
+    )
     print_results(results)
+
 
 if __name__ == "__main__":
     main()

@@ -12,7 +12,6 @@ class GeoToolsError(Exception):
     """Base exception for geo_tools errors."""
 
 
-
 def validate_geometry(geometry) -> tuple[bool, str | None]:
     """Validate a geometry object."""
     if geometry is None:
@@ -113,6 +112,7 @@ def calculate_folder_bounds(folder_path: str | Path, rounding_interval: int = 10
 
     return round_bounds(total_bounds, rounding_interval)
 
+
 def read_tabular(
     self,
     input_path: Path,
@@ -141,12 +141,12 @@ def read_tabular(
     GeoDataFrame with geometry information.
     """
     # Read the file based on its extension
-    if input_path.suffix == '.csv':
+    if input_path.suffix == ".csv":
         df = pd.read_csv(input_path)
     elif input_path.suffix in {".xlsx", ".xls"}:
         df = pd.read_excel(input_path)
-    elif input_path.suffix == '.ods':
-        df = pd.read_excel(input_path, engine='odf')
+    elif input_path.suffix == ".ods":
+        df = pd.read_excel(input_path, engine="odf")
     else:
         msg = f"Unsupported file format: {input_path.suffix}"
         raise ValueError(msg)
