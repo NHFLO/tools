@@ -159,6 +159,7 @@ class GeoConverter:
             ".qpj",
             ".par",
             ".ung",
+            ".qmd",
         }
         excl_convertable_shape_files = {f.with_suffix(s) for f in convertible_files for s in excluded_shape_extensions}
 
@@ -291,6 +292,13 @@ def main():
     # Convert folder with all files
     input_folder = mockup_path / "bodemlagen_pwn_bergen/v1.0.0"
     output_folder = mockup_path / "bodemlagen_pwn_bergen/v2.0.0"
+    results = converter.convert_folder(
+        input_folder=input_folder, output_folder=output_folder, coordinate_precision=1, overwrite_with_target_crs=True
+    )
+    print_results(results)
+
+    input_folder = mockup_path / "bodemlagen_pwn_2024/temp"
+    output_folder = mockup_path / "bodemlagen_pwn_2024/v1.0.0"
     results = converter.convert_folder(
         input_folder=input_folder, output_folder=output_folder, coordinate_precision=1, overwrite_with_target_crs=True
     )
