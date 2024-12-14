@@ -1,4 +1,5 @@
 """Module containing functions to retrieve PWN bodemlagen."""
+
 import logging
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import xarray as xr
 from shapely.ops import unary_union
 
 logger = logging.getLogger(__name__)
+
 
 def get_pwn_aquitard_data(data_dir: Path, ds_regis: xr.Dataset, ix: nlmod.Index, transition_length: float) -> dict:
     """
@@ -53,7 +55,9 @@ def get_pwn_aquitard_data(data_dir: Path, ds_regis: xr.Dataset, ix: nlmod.Index,
 
         # Compute where the layer transitions to REGIS
         multipolygon_transition = multipolygon.buffer(transition_length).difference(multipolygon)
-        ids_trans = ix.intersect(multipolygon_transition, contains_centroid=False, min_area_fraction=0.5).cellids.astype(int)
+        ids_trans = ix.intersect(
+            multipolygon_transition, contains_centroid=False, min_area_fraction=0.5
+        ).cellids.astype(int)
         data[f"{name}_transition"] = np.zeros(ds_regis.sizes["icell2d"], dtype=bool)
         data[f"{name}_transition"][ids_trans] = True
 
@@ -86,5 +90,4 @@ def get_pwn_aquitard_data(data_dir: Path, ds_regis: xr.Dataset, ix: nlmod.Index,
         )
         data[f"T{name}_value"] = np.zeros(ds_regis.sizes["icell2d"])
         data[f"T{name}_value"][~data[f"D{name}_mask"]] = ok.execute("points", xq, yq)[0]
-
     return data
