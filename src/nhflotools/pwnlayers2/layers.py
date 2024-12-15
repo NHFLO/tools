@@ -4,16 +4,16 @@ import logging
 from pathlib import Path
 
 import geopandas as gpd
-import nlmod
 import numpy as np
 import pykrige.ok
 import xarray as xr
+from flopy.utils.gridintersect import GridIntersect
 from shapely.ops import unary_union
 
 logger = logging.getLogger(__name__)
 
 
-def get_pwn_aquitard_data(data_dir: Path, ds_regis: xr.Dataset, ix: nlmod.Index, transition_length: float) -> dict:
+def get_pwn_aquitard_data(ds_regis: xr.Dataset, data_dir: Path, ix: GridIntersect, transition_length: float) -> dict:
     """
     Interpolate the thickness of the aquitard layers and the top of the aquitard layers using Kriging.
 
@@ -26,11 +26,11 @@ def get_pwn_aquitard_data(data_dir: Path, ds_regis: xr.Dataset, ix: nlmod.Index,
 
     Parameters
     ----------
-    data_dir : Path
-        The directory containing the data. Contains folders `dikte_aquitard` and `top_aquitard`.
     ds_regis : xr.Dataset
         The REGIS modellayer that contains the vertex grid.
-    ix : nlmod.Index
+    data_dir : Path
+        The directory containing the data. Contains folders `dikte_aquitard` and `top_aquitard`.
+    ix : flopy.utils.GridIntersect
         The index of the model grid.
     transition_length : float
         The length of the transition zone in meters.
@@ -45,6 +45,7 @@ def get_pwn_aquitard_data(data_dir: Path, ds_regis: xr.Dataset, ix: nlmod.Index,
 
     for name in layer_names:
         # Compute where the layer is _not_ present
+        logger.info(f"Interpolating aquitard layer {name} data and its transition zone")
         fp_mask = data_dir / "dikte_aquitard" / f"D{name}" / f"D{name}_mask_combined.geojson"
         gdf_mask = gpd.read_file(fp_mask)
 
@@ -74,8 +75,11 @@ def get_pwn_aquitard_data(data_dir: Path, ds_regis: xr.Dataset, ix: nlmod.Index,
         )
         xq = ds_regis.x.values[~data[f"{name}_mask"]]
         yq = ds_regis.y.values[~data[f"{name}_mask"]]
+        krieging_result = ok.execute("points", xq, yq)
         data[f"D{name}_value"] = np.zeros(ds_regis.sizes["icell2d"])
-        data[f"D{name}_value"][~data[f"{name}_mask"]] = ok.execute("points", xq, yq)[0]
+        data[f"D{name}_value"][~data[f"{name}_mask"]] = krieging_result[0]
+        data[f"D{name}_value_unc"] = np.zeros(ds_regis.sizes["icell2d"])
+        data[f"D{name}_value_unc"][~data[f"{name}_mask"]] = krieging_result[1]
 
         # Interpolate top aquitard points using Krieging
         fp_pts = data_dir / "top_aquitard" / f"T{name}" / f"T{name}_interpolation_points.geojson"
@@ -88,6 +92,10 @@ def get_pwn_aquitard_data(data_dir: Path, ds_regis: xr.Dataset, ix: nlmod.Index,
             verbose=False,
             enable_plotting=False,
         )
+        krieging_result = ok.execute("points", xq, yq)
         data[f"T{name}_value"] = np.zeros(ds_regis.sizes["icell2d"])
-        data[f"T{name}_value"][~data[f"D{name}_mask"]] = ok.execute("points", xq, yq)[0]
+        data[f"T{name}_value"][~data[f"D{name}_mask"]] = krieging_result[0]
+        data[f"T{name}_value_unc"] = np.zeros(ds_regis.sizes["icell2d"])
+        data[f"T{name}_value_unc"][~data[f"D{name}_mask"]] = krieging_result[1]
     return data
+
