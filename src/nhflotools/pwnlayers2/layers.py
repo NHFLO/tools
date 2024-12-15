@@ -1,7 +1,7 @@
 """Module containing functions to retrieve PWN bodemlagen."""
 
-from contextlib import redirect_stdout
 import logging
+from contextlib import redirect_stdout
 from pathlib import Path
 
 import geopandas as gpd
@@ -41,12 +41,14 @@ def get_pwn_aquitard_data(ds_regis: xr.Dataset, data_dir: Path, ix: GridIntersec
     dict
         A dictionary containing the interpolated values of the aquitard layers.
     """
+    verbose = logger.level <= logging.DEBUG
+
     layer_names = ["S11", "S12", "S13", "S21", "S22", "S31", "S32"]
     data = {}
 
     for name in layer_names:
         # Compute where the layer is _not_ present
-        logger.info(f"Interpolating aquitard layer {name} data and its transition zone")
+        logger.info("Interpolating aquitard layer %s data and its transition zone", name)
         fp_mask = data_dir / "dikte_aquitard" / f"D{name}" / f"D{name}_mask_combined.geojson"
         gdf_mask = gpd.read_file(fp_mask)
 
@@ -73,8 +75,8 @@ def get_pwn_aquitard_data(ds_regis: xr.Dataset, data_dir: Path, ix: GridIntersec
                 gdf_pts.geometry.y.values,
                 gdf_pts.value.values,
                 variogram_model="linear",
-                verbose=logger.level <= logging.DEBUG,
-                enable_plotting=logger.level <= logging.DEBUG,
+                verbose=verbose,
+                enable_plotting=verbose,
             )
         xq = ds_regis.x.values[~data[f"{name}_mask"]]
         yq = ds_regis.y.values[~data[f"{name}_mask"]]
@@ -92,8 +94,8 @@ def get_pwn_aquitard_data(ds_regis: xr.Dataset, data_dir: Path, ix: GridIntersec
                 gdf_pts.geometry.y.values,
                 gdf_pts.value.values,
                 variogram_model="linear",
-                verbose=logger.level <= logging.DEBUG,
-                enable_plotting=logger.level <= logging.DEBUG,
+                verbose=verbose,
+                enable_plotting=verbose,
             )
         kriging_result = ok.execute("points", xq, yq)
         data[f"T{name}_value"] = np.where(~data[f"{name}_mask"], kriging_result[0], np.nan)
