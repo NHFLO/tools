@@ -1,5 +1,6 @@
 """Module containing functions to retrieve PWN bodemlagen."""
 
+from contextlib import redirect_stdout
 import logging
 from pathlib import Path
 
@@ -65,37 +66,37 @@ def get_pwn_aquitard_data(ds_regis: xr.Dataset, data_dir: Path, ix: GridIntersec
         # Interpolate thickness points using Kriging
         fp_pts = data_dir / "dikte_aquitard" / f"D{name}" / f"D{name}_interpolation_points.geojson"
         gdf_pts = gpd.read_file(fp_pts)
-        ok = pykrige.ok.OrdinaryKriging(
-            gdf_pts.geometry.x.values,
-            gdf_pts.geometry.y.values,
-            gdf_pts.value.values,
-            variogram_model="linear",
-            verbose=False,
-            enable_plotting=False,
-        )
+
+        with redirect_stdout(logging.StreamHandler(logger)):
+            ok = pykrige.ok.OrdinaryKriging(
+                gdf_pts.geometry.x.values,
+                gdf_pts.geometry.y.values,
+                gdf_pts.value.values,
+                variogram_model="linear",
+                verbose=logger.level <= logging.DEBUG,
+                enable_plotting=logger.level <= logging.DEBUG,
+            )
         xq = ds_regis.x.values[~data[f"{name}_mask"]]
         yq = ds_regis.y.values[~data[f"{name}_mask"]]
         kriging_result = ok.execute("points", xq, yq)
-        data[f"D{name}_value"] = np.zeros(ds_regis.sizes["icell2d"])
-        data[f"D{name}_value"][~data[f"{name}_mask"]] = kriging_result[0]
-        data[f"D{name}_value_unc"] = np.zeros(ds_regis.sizes["icell2d"])
-        data[f"D{name}_value_unc"][~data[f"{name}_mask"]] = kriging_result[1]
+        data[f"D{name}_value"] = np.where(~data[f"{name}_mask"], kriging_result[0], 0.)
+        data[f"D{name}_value_unc"] = np.where(~data[f"{name}_mask"], kriging_result[1], np.nan)
 
         # Interpolate top aquitard points using Kriging
         fp_pts = data_dir / "top_aquitard" / f"T{name}" / f"T{name}_interpolation_points.geojson"
         gdf_pts = gpd.read_file(fp_pts)
-        ok = pykrige.ok.OrdinaryKriging(
-            gdf_pts.geometry.x.values,
-            gdf_pts.geometry.y.values,
-            gdf_pts.value.values,
-            variogram_model="linear",
-            verbose=False,
-            enable_plotting=False,
-        )
-        kriging_result = ok.execute("points", xq, yq)
-        data[f"T{name}_value"] = np.zeros(ds_regis.sizes["icell2d"])
-        data[f"T{name}_value"][~data[f"D{name}_mask"]] = kriging_result[0]
-        data[f"T{name}_value_unc"] = np.zeros(ds_regis.sizes["icell2d"])
-        data[f"T{name}_value_unc"][~data[f"D{name}_mask"]] = kriging_result[1]
-    return data
 
+        with redirect_stdout(logging.StreamHandler(logger)):
+            ok = pykrige.ok.OrdinaryKriging(
+                gdf_pts.geometry.x.values,
+                gdf_pts.geometry.y.values,
+                gdf_pts.value.values,
+                variogram_model="linear",
+                verbose=logger.level <= logging.DEBUG,
+                enable_plotting=logger.level <= logging.DEBUG,
+            )
+        kriging_result = ok.execute("points", xq, yq)
+        data[f"T{name}_value"] = np.where(~data[f"{name}_mask"], kriging_result[0], np.nan)
+        data[f"T{name}_value_unc"] = np.where(~data[f"{name}_mask"], kriging_result[1], np.nan)
+
+    return data
