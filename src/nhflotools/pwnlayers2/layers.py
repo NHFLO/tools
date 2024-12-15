@@ -62,7 +62,7 @@ def get_pwn_aquitard_data(ds_regis: xr.Dataset, data_dir: Path, ix: GridIntersec
         data[f"{name}_transition"] = np.zeros(ds_regis.sizes["icell2d"], dtype=bool)
         data[f"{name}_transition"][ids_trans] = True
 
-        # Interpolate thickness points using Krieging
+        # Interpolate thickness points using Kriging
         fp_pts = data_dir / "dikte_aquitard" / f"D{name}" / f"D{name}_interpolation_points.geojson"
         gdf_pts = gpd.read_file(fp_pts)
         ok = pykrige.ok.OrdinaryKriging(
@@ -75,13 +75,13 @@ def get_pwn_aquitard_data(ds_regis: xr.Dataset, data_dir: Path, ix: GridIntersec
         )
         xq = ds_regis.x.values[~data[f"{name}_mask"]]
         yq = ds_regis.y.values[~data[f"{name}_mask"]]
-        krieging_result = ok.execute("points", xq, yq)
+        kriging_result = ok.execute("points", xq, yq)
         data[f"D{name}_value"] = np.zeros(ds_regis.sizes["icell2d"])
-        data[f"D{name}_value"][~data[f"{name}_mask"]] = krieging_result[0]
+        data[f"D{name}_value"][~data[f"{name}_mask"]] = kriging_result[0]
         data[f"D{name}_value_unc"] = np.zeros(ds_regis.sizes["icell2d"])
-        data[f"D{name}_value_unc"][~data[f"{name}_mask"]] = krieging_result[1]
+        data[f"D{name}_value_unc"][~data[f"{name}_mask"]] = kriging_result[1]
 
-        # Interpolate top aquitard points using Krieging
+        # Interpolate top aquitard points using Kriging
         fp_pts = data_dir / "top_aquitard" / f"T{name}" / f"T{name}_interpolation_points.geojson"
         gdf_pts = gpd.read_file(fp_pts)
         ok = pykrige.ok.OrdinaryKriging(
@@ -92,10 +92,10 @@ def get_pwn_aquitard_data(ds_regis: xr.Dataset, data_dir: Path, ix: GridIntersec
             verbose=False,
             enable_plotting=False,
         )
-        krieging_result = ok.execute("points", xq, yq)
+        kriging_result = ok.execute("points", xq, yq)
         data[f"T{name}_value"] = np.zeros(ds_regis.sizes["icell2d"])
-        data[f"T{name}_value"][~data[f"D{name}_mask"]] = krieging_result[0]
+        data[f"T{name}_value"][~data[f"D{name}_mask"]] = kriging_result[0]
         data[f"T{name}_value_unc"] = np.zeros(ds_regis.sizes["icell2d"])
-        data[f"T{name}_value_unc"][~data[f"D{name}_mask"]] = krieging_result[1]
+        data[f"T{name}_value_unc"][~data[f"D{name}_mask"]] = kriging_result[1]
     return data
 
