@@ -15,7 +15,7 @@ from shapely.ops import unary_union
 logger = logging.getLogger(__name__)
 
 
-def get_pwn_aquitard_data(ds_regis: xr.Dataset, ix: GridIntersect, modelgrid: VertexGrid, data_dir: Path, transition_length: float) -> dict:
+def get_pwn_aquitard_data(ds: xr.Dataset, ix: GridIntersect, modelgrid: VertexGrid, data_dir: Path, transition_length: float) -> dict:
     """
     Interpolate the thickness of the aquitard layers and the top of the aquitard layers using Kriging.
 
@@ -28,8 +28,8 @@ def get_pwn_aquitard_data(ds_regis: xr.Dataset, ix: GridIntersect, modelgrid: Ve
 
     Parameters
     ----------
-    ds_regis : xr.Dataset
-        The REGIS modellayer that contains the vertex grid.
+    ds : xr.Dataset
+        The model dataset that contains the vertex grid information.
     ix : flopy.utils.GridIntersect
         The index of the model grid.
     modelgrid : flopy.discretization.VertexGrid
@@ -46,8 +46,8 @@ def get_pwn_aquitard_data(ds_regis: xr.Dataset, ix: GridIntersect, modelgrid: Ve
     """
     verbose = logger.level <= logging.DEBUG
 
-    if ix is None and modelgrid is None and ds_regis is not None:
-        modelgrid = modelgrid_from_ds(ds_regis)
+    if ix is None and modelgrid is None and ds is not None:
+        modelgrid = modelgrid_from_ds(ds)
 
     if ix is None and modelgrid is not None:
         ix = GridIntersect(modelgrid, method="vertex")
