@@ -16,7 +16,7 @@ from nlmod.dims.grid import gdf_to_bool_da, modelgrid_from_ds
 from packaging import version
 from shapely.ops import unary_union
 
-from nhflotools.pwnlayers.layers import _fix_missings_botms_and_min_layer_thickness
+from nhflotools.pwnlayers.utils import fix_missings_botms_and_min_layer_thickness
 
 logger = logging.getLogger(__name__)
 
@@ -277,7 +277,7 @@ def get_mensink_botm(
 
     if fix_min_layer_thickness:
         ds = xr.Dataset({"botm": out, "top": a["top"]})
-        _fix_missings_botms_and_min_layer_thickness(ds)
+        fix_missings_botms_and_min_layer_thickness(ds)
         out = ds["botm"]
 
     return out
