@@ -8,6 +8,7 @@ from nlmod import cache
 from scipy.interpolate import griddata
 
 from nhflotools.pwnlayers.io import read_pwn_data2
+from nhflotools.pwnlayers.utils import fix_missings_botms_and_min_layer_thickness
 from nhflotools.pwnlayers2.layers import get_mensink_layer_model as get_mensink_layer_model2
 
 logger = logging.getLogger(__name__)
@@ -112,7 +113,7 @@ def get_pwn_layer_model(
     layer_model_regis["top"] = top
 
     if fix_min_layer_thickness:
-        _fix_missings_botms_and_min_layer_thickness(layer_model_regis)
+        fix_missings_botms_and_min_layer_thickness(layer_model_regis)
 
     # Get PWN layer models
     ds_pwn_data = read_pwn_data2(
@@ -166,7 +167,7 @@ def get_pwn_layer_model(
         koppeltabel_header_other="ASSUMPTION1",
     )
     if fix_min_layer_thickness:
-        _fix_missings_botms_and_min_layer_thickness(layer_model_bergen_regis)
+        fix_missings_botms_and_min_layer_thickness(layer_model_bergen_regis)
 
     # Combine PWN layer model with REGIS layer model
     layer_model_mensink_bergen_regis, _cat_mensink_bergen_regis = combine_two_layer_models(
@@ -179,7 +180,7 @@ def get_pwn_layer_model(
         koppeltabel_header_other="ASSUMPTION1",
     )
     if fix_min_layer_thickness:
-        _fix_missings_botms_and_min_layer_thickness(layer_model_mensink_bergen_regis)
+        fix_missings_botms_and_min_layer_thickness(layer_model_mensink_bergen_regis)
 
     # Remove inactive layers and set kh and kv of non-existing cells to default values
     layer_model_mensink_bergen_regis["kh"] = layer_model_mensink_bergen_regis.kh.where(
@@ -285,41 +286,6 @@ def get_top_from_ahn(
     qvalues = griddata(points=points, values=values, xi=qpoints, method=method_elsewhere)
     top.loc[{"icell2d": top.isnull()}] = qvalues
     return top
-
-
-def _fix_missings_botms_and_min_layer_thickness(ds):
-    """
-    Fix missing botms and ensure all layers have a positive thickness.
-
-    Parameters
-    ----------
-    ds : xarray Dataset
-        Dataset containing the layer model with top and botm.
-
-    Raises
-    ------
-    ValueError
-        If top contains nan values.
-    """
-    if ds["top"].isnull().any():
-        msg = "Top should not contain nan values"
-        raise ValueError(msg)
-
-    out = xr.concat((ds["top"].expand_dims(dim={"layer": ["mv"]}, axis=0), ds["botm"]), dim="layer")
-
-    # Use ffill here to fill the nan's with the previous layer. Layer thickness is zero for non existing layers
-    out = out.ffill(dim="layer")
-    out.values = np.minimum.accumulate(out.values, axis=out.dims.index("layer"))
-    topbotm_fixed = out.isel(layer=slice(1, None)).transpose("layer", "icell2d")
-
-    # inform
-    ncell, nisnull = ds["botm"].size, ds["botm"].isnull().sum()
-    nfixed = (~np.isclose(ds.botm, topbotm_fixed)).sum()
-
-    logger.info(
-        f"Fixed {nisnull / ncell * 100.0:.1f}% missing botms using downward fill. Shifted {(nfixed - nisnull) / ncell * 100.0:.1f}% botms to ensure all layers have a positive thickness, assuming more info is in the upper layer."
-    )
-    ds["botm"].values = topbotm_fixed.values
 
 
 def combine_two_layer_models(
@@ -1235,7 +1201,7 @@ def get_bergen_botm(data, mask=False, transition=False, fix_min_layer_thickness=
         return transition
     if fix_min_layer_thickness:
         ds = xr.Dataset({"botm": out, "top": data["top"]})
-        _fix_missings_botms_and_min_layer_thickness(ds)
+        fix_missings_botms_and_min_layer_thickness(ds)
         out = ds["botm"]
 
     return out
@@ -1594,7 +1560,7 @@ def get_mensink_botm(data, mask=False, transition=False, fix_min_layer_thickness
         return transition
     if fix_min_layer_thickness:
         ds = xr.Dataset({"botm": out, "top": data["top"]})
-        _fix_missings_botms_and_min_layer_thickness(ds)
+        fix_missings_botms_and_min_layer_thickness(ds)
         out = ds["botm"]
 
     return out
