@@ -10,6 +10,7 @@ from scipy.interpolate import griddata
 from nhflotools.pwnlayers.io import read_pwn_data2
 from nhflotools.pwnlayers.utils import fix_missings_botms_and_min_layer_thickness
 from nhflotools.pwnlayers2.layers import get_mensink_layer_model as get_mensink_layer_model2
+from nhflotools.pwnlayers2.layers import get_pwn_aquitard_data
 
 logger = logging.getLogger(__name__)
 
@@ -124,13 +125,7 @@ def get_pwn_layer_model(
         cachedir=cachedir,
     )
     if data_path_2024 is not None:
-        ds_pwn_data_2024 = read_pwn_data2(
-            layer_model_regis,
-            datadir_mensink=data_path_2024,
-            datadir_bergen=None,
-            length_transition=length_transition,
-            cachedir=cachedir,
-        )
+        ds_pwn_data_2024 = get_pwn_aquitard_data(ds=ds_regis, data_dir=data_path_2024, ix=None, transition_length=length_transition)
         layer_model_mensink, mask_model_mensink, transition_model_mensink = get_mensink_layer_model2(
             ds_pwn_data=ds_pwn_data, ds_pwn_data_2024=ds_pwn_data_2024, fix_min_layer_thickness=fix_min_layer_thickness
         )
