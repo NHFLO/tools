@@ -64,6 +64,8 @@ def get_pwn_aquitard_data(
     """
     verbose = logger.level <= logging.DEBUG
 
+    data_dir = Path(data_dir)
+
     if ix is None and modelgrid is None and ds is not None:
         modelgrid = modelgrid_from_ds(ds, rotated=False)
 
@@ -76,7 +78,7 @@ def get_pwn_aquitard_data(
     for name in layer_names:
         # Compute where the layer is _not_ present
         logger.info("Interpolating aquitard layer %s data and its transition zone", name)
-        fp_mask = Path(data_dir) / "dikte_aquitard" / f"D{name}" / f"D{name}_mask_combined.geojson"
+        fp_mask = data_dir / "dikte_aquitard" / f"D{name}" / f"D{name}_mask_combined.geojson"
         gdf_mask = gpd.read_file(fp_mask)
         data[f"{name}_mask"] = gdf_to_bool_da(
             gdf=gdf_mask,
