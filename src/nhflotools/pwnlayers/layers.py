@@ -8,6 +8,7 @@ from nlmod import cache
 from scipy.interpolate import griddata
 
 from nhflotools.pwnlayers.io import read_pwn_data2
+from nhflotools.pwnlayers2.layers import get_mensink_layer_model as get_mensink_layer_model2
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ def get_pwn_layer_model(
     ds_regis=None,
     data_path_mensink=None,
     data_path_bergen=None,
+    data_path_2024=None,
     fname_koppeltabel=None,
     top=None,
     length_transition=100.0,
@@ -73,6 +75,8 @@ def get_pwn_layer_model(
         The path to the Mensink data directory.
     data_path_bergen : str
         The path to the Bergen data directory.
+    data_path_2024 : str
+        The path to the 2024 data directory. In 2024, work is done to improve the position of the aquitards.
     fname_koppeltabel : str
         The filename of the koppeltabel (translation table) CSV file.
     top : xarray DataArray, optional
@@ -118,9 +122,21 @@ def get_pwn_layer_model(
         length_transition=length_transition,
         cachedir=cachedir,
     )
-    layer_model_mensink, mask_model_mensink, transition_model_mensink = get_mensink_layer_model(
-        ds_pwn_data=ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness
-    )
+    if data_path_2024 is not None:
+        ds_pwn_data_2024 = read_pwn_data2(
+            layer_model_regis,
+            datadir_mensink=data_path_2024,
+            datadir_bergen=None,
+            length_transition=length_transition,
+            cachedir=cachedir,
+        )
+        layer_model_mensink, mask_model_mensink, transition_model_mensink = get_mensink_layer_model2(
+            ds_pwn_data=ds_pwn_data, ds_pwn_data_2024=ds_pwn_data_2024, fix_min_layer_thickness=fix_min_layer_thickness
+        )
+    else:
+        layer_model_mensink, mask_model_mensink, transition_model_mensink = get_mensink_layer_model(
+            ds_pwn_data=ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness
+        )
     layer_model_bergen, mask_model_bergen, transition_model_bergen = get_bergen_layer_model(
         ds_pwn_data=ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness
     )
@@ -136,31 +152,29 @@ def get_pwn_layer_model(
     df_koppeltabel = pd.read_csv(fname_koppeltabel, skiprows=0, index_col=0)
     df_koppeltabel = df_koppeltabel[~df_koppeltabel["ASSUMPTION1"].isna()]
 
-    # Combine PWN layer model with REGIS layer model
-    layer_model_mensink_regis, _cat_mensink_regis = combine_two_layer_models(
+    # Combine PWN layer model with Bergen layer model and REGIS layer model
+    (
+        layer_model_bergen_regis,
+        _cat_model_bergen_regis,
+    ) = combine_two_layer_models(
         df_koppeltabel,
         layer_model_regis,
-        layer_model_mensink,
-        mask_model_mensink,
-        transition_model_mensink,
+        layer_model_bergen,
+        mask_model_bergen,
+        transition_model_bergen,
         koppeltabel_header_regis="Regis II v2.2",
         koppeltabel_header_other="ASSUMPTION1",
     )
     if fix_min_layer_thickness:
-        _fix_missings_botms_and_min_layer_thickness(layer_model_mensink_regis)
-    thick_layer_model_mensink_regis = nlmod.dims.layers.calculate_thickness(layer_model_mensink_regis)
-    assert ~(thick_layer_model_mensink_regis < 0.0).any(), "Mensink_regis thickness of layers should be positive"
+        _fix_missings_botms_and_min_layer_thickness(layer_model_bergen_regis)
 
-    # Combine PWN layer model with Bergen layer model and REGIS layer model
-    (
-        layer_model_mensink_bergen_regis,
-        _,
-    ) = combine_two_layer_models(
+    # Combine PWN layer model with REGIS layer model
+    layer_model_mensink_bergen_regis, _cat_mensink_bergen_regis = combine_two_layer_models(
         df_koppeltabel,
-        layer_model_mensink_regis,
-        layer_model_bergen,
-        mask_model_bergen,
-        transition_model_bergen,
+        layer_model_bergen_regis,
+        layer_model_mensink,
+        mask_model_mensink,
+        transition_model_mensink,
         koppeltabel_header_regis="Regis II v2.2",
         koppeltabel_header_other="ASSUMPTION1",
     )
