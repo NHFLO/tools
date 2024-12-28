@@ -76,7 +76,7 @@ def get_pwn_aquitard_data(
     for name in layer_names:
         # Compute where the layer is _not_ present
         logger.info("Interpolating aquitard layer %s data and its transition zone", name)
-        fp_mask = data_dir / "dikte_aquitard" / f"D{name}" / f"D{name}_mask_combined.geojson"
+        fp_mask = Path(data_dir) / "dikte_aquitard" / f"D{name}" / f"D{name}_mask_combined.geojson"
         gdf_mask = gpd.read_file(fp_mask)
         data[f"{name}_mask"] = gdf_to_bool_da(
             gdf=gdf_mask,
