@@ -45,7 +45,7 @@ license = { file = "LICENSE.txt" }
 maintainers = [{ name = "Bas des Tombe", email = "bas.des.tombe@pwn.nl" }]
 name = "nhflotools"
 readme = "README.md"
-requires-python = "==3.11"
+requires-python = ">=3.11"
 
 [project.optional-dependencies]
 lintformat = [
