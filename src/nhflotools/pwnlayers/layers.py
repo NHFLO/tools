@@ -92,6 +92,8 @@ def get_pwn_layer_model(
     -------
     ds : xarray Dataset
         The merged dataset.
+
+    TODO: Reverse order coupling Mensink-REGIS and Bergen-REGIS
     """
     cachedir = None  # Cache not needed for underlying functions
 
@@ -148,26 +150,10 @@ def get_pwn_layer_model(
     df_koppeltabel = pd.read_csv(fname_koppeltabel, skiprows=0, index_col=0)
     df_koppeltabel = df_koppeltabel[~df_koppeltabel["ASSUMPTION1"].isna()]
 
-    # Combine PWN layer model with Bergen layer model and REGIS layer model
-    (
-        layer_model_bergen_regis,
-        _cat_model_bergen_regis,
-    ) = combine_two_layer_models(
+    # Combine PWN layer model with REGIS layer model
+    layer_model_mensink_regis, _cat_mensink_regis = combine_two_layer_models(
         df_koppeltabel,
         layer_model_regis,
-        layer_model_bergen,
-        mask_model_bergen,
-        transition_model_bergen,
-        koppeltabel_header_regis="Regis II v2.2",
-        koppeltabel_header_other="ASSUMPTION1",
-    )
-    if fix_min_layer_thickness:
-        fix_missings_botms_and_min_layer_thickness(layer_model_bergen_regis)
-
-    # Combine PWN layer model with REGIS layer model
-    layer_model_mensink_bergen_regis, _cat_mensink_bergen_regis = combine_two_layer_models(
-        df_koppeltabel,
-        layer_model_bergen_regis,
         layer_model_mensink,
         mask_model_mensink,
         transition_model_mensink,
@@ -175,8 +161,24 @@ def get_pwn_layer_model(
         koppeltabel_header_other="ASSUMPTION1",
     )
     if fix_min_layer_thickness:
-        fix_missings_botms_and_min_layer_thickness(layer_model_mensink_bergen_regis)
+        fix_missings_botms_and_min_layer_thickness(layer_model_mensink_regis)
 
+    # Combine PWN layer model with Bergen layer model and REGIS layer model
+    (
+        layer_model_mensink_bergen_regis,
+        _,
+    ) = combine_two_layer_models(
+        df_koppeltabel,
+        layer_model_mensink_regis,
+        layer_model_bergen,
+        mask_model_bergen,
+        transition_model_bergen,
+        koppeltabel_header_regis="Regis II v2.2",
+        koppeltabel_header_other="ASSUMPTION1",
+    )
+    if fix_min_layer_thickness:
+        fix_missings_botms_and_min_layer_thickness(layer_model_mensink_bergen_regis)
+    
     # Remove inactive layers and set kh and kv of non-existing cells to default values
     layer_model_mensink_bergen_regis["kh"] = layer_model_mensink_bergen_regis.kh.where(
         layer_model_mensink_bergen_regis.kh != 0.0, np.nan
