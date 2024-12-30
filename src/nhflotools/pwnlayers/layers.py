@@ -178,7 +178,7 @@ def get_pwn_layer_model(
     )
     if fix_min_layer_thickness:
         fix_missings_botms_and_min_layer_thickness(layer_model_mensink_bergen_regis)
-    
+
     # Remove inactive layers and set kh and kv of non-existing cells to default values
     layer_model_mensink_bergen_regis["kh"] = layer_model_mensink_bergen_regis.kh.where(
         layer_model_mensink_bergen_regis.kh != 0.0, np.nan
@@ -546,7 +546,7 @@ def combine_two_layer_models(
                 "data is provided and in the transition zone."
             )
             continue
-        assert ~any(
+        assert  not any(
             i in layer_model_regis.layer.values for i in new_layers
         ), "Previously combined REGIS layers should not be split for a second time."
 

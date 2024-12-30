@@ -1,0 +1,41 @@
+name: Test PwnLayers
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - src/pwnlayers
+      - src/pwnlayers2
+      - tests/test_pwnlayers.py
+  pull_request:
+    branches:
+      - main
+    paths:
+      - src/pwnlayers
+      - src/pwnlayers2
+      - tests/test_pwnlayers.py
+
+jobs:
+  pwnlayers:
+    runs-on: ubuntu-latest
+    concurrency:
+      # Cancel any previous runs with the same workflow name and branch
+      group: pwnlayers-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    strategy:
+      fail-fast: false
+    env:
+      HATCH_VERBOSE: 1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: pyproject.toml
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+      - name: Install hatch
+        run: uv tool install hatch
+      - name: Test notebooks in test env
+        run: hatch run test:pytest -v tests/test_pwnlayers.py

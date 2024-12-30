@@ -2,14 +2,14 @@
 build-backend = "hatchling.build"
 requires = ["hatchling>=1.8.0"]
 
-[tool.hatch.version]
-path = "src/nhflotools/__init__.py"
-
 [tool.hatch.build.targets.sdist]
 exclude = ["/.githooks", "/.github", "/.mypy_cache", "/.pytest_cache", "sonar-project.properties"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nhflotools"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.publish.index]
 disable = true # Requires confirmation when publishing to pypi.
@@ -28,7 +28,7 @@ dependencies = [
   "flopy",
   "geopandas",
   "matplotlib",
-  "nlmod>=0.7.3b",
+  "nlmod>=0.7.3",
   "numpy",
   "pandas",
   "pykrige",
@@ -39,18 +39,24 @@ dependencies = [
   "xarray",
 ]
 description = "Tools that support the NHFLO modeling environment."
-dynamic = ["version"]
 keywords = ["NHFLO"]
 license = { file = "LICENSE.txt" }
 maintainers = [{ name = "Bas des Tombe", email = "bas.des.tombe@pwn.nl" }]
 name = "nhflotools"
 readme = "README.md"
 requires-python = ">=3.11"
+version = "0.3.0"
 
 [project.optional-dependencies]
 lintformat = [
   "hatch",
   "ruff==0.6.8",
+]
+test = [
+  "pytest",
+  "pytest-env",
+  "nhflodata @ git+https://github.com/NHFLO/data.git@main",
+  "nlmod @ git+https://github.com/gwmod/nlmod.git@dev"
 ]
 
 [tool.hatch.envs.default]
@@ -70,6 +76,11 @@ lint = [
   "ruff check tests/test_pwnlayers.py src/nhflotools/pwnlayers src/nhflotools/geoconverter src/nhflotools/major_surface_waters.py src/nhflotools/nhi_chloride.py src/nhflotools/panden.py src/nhflotools/polder.py src/nhflotools/well.py"
 ]
 lintminimal = ["ruff check src/nhflotools/pwnlayers src/nhflotools/geoconverter src/nhflotools/major_surface_waters.py src/nhflotools/nhi_chloride.py src/nhflotools/panden.py src/nhflotools/polder.py src/nhflotools/well.py --config \"lint.select=['E4', 'E7', 'E9', 'F']\""]
+
+[tool.hatch.envs.test]
+features = ["test"]
+[tool.hatch.envs.test.scripts]
+test = "pytest -v"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
