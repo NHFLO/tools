@@ -28,7 +28,7 @@ dependencies = [
   "flopy",
   "geopandas",
   "matplotlib",
-  "nlmod>=0.7.3b",
+  "nlmod>=0.9.1.dev0",
   "numpy",
   "pandas",
   "pykrige",
