@@ -28,7 +28,7 @@ dependencies = [
   "flopy",
   "geopandas",
   "matplotlib",
-  "nlmod>=0.9.1.dev0",
+  "nlmod[full] @ git+https://github.com/gwmod/nlmod.git@dev",
   "numpy",
   "pandas",
   "pykrige",
