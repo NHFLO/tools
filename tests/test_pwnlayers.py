@@ -1,5 +1,6 @@
 import logging
 import os
+import tempfile
 
 import nlmod
 import pytest
@@ -12,6 +13,9 @@ from nhflotools.pwnlayers.layers import (
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
+
+tmpdir = tempfile.gettempdir()
+
 
 # %% create folder structure
 @pytest.mark.slow
