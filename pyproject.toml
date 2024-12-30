@@ -49,7 +49,11 @@ lintformat = [
   "hatch",
   "ruff==0.6.8",
 ]
-test = ["pytest", "pytest-env"]
+test = [
+  "pytest",
+  "pytest-env",
+  "nhflodata @ git+https://github.com/NHFLO/data.git@main"
+]
 
 [tool.hatch.envs.default]
 installer = "uv"
