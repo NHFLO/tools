@@ -8,6 +8,9 @@ exclude = ["/.githooks", "/.github", "/.mypy_cache", "/.pytest_cache", "sonar-pr
 [tool.hatch.build.targets.wheel]
 packages = ["src/nhflotools"]
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.hatch.publish.index]
 disable = true # Requires confirmation when publishing to pypi.
 
