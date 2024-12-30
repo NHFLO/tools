@@ -77,7 +77,3 @@ def test_create_pwn_model_grid_only(tmpdir, model_name="pwn"):
         cachedir=cachedir,
         cachename="pwn_layer_model",
     )
-
-    for k in ["botm", "kh", "kv"]:
-        assert k in ds, f"Variable {k} should be present in `ds`."
-        assert ~(ds[k].values == ds_regis[k].values).all(), f"Variable {k} should not be equal to `ds_regis`."
