@@ -28,7 +28,7 @@ dependencies = [
   "flopy",
   "geopandas",
   "matplotlib",
-  "nlmod[full] @ git+https://github.com/gwmod/nlmod.git@dev",
+  "nlmod>=0.7.3",
   "numpy",
   "pandas",
   "pykrige",
@@ -55,7 +55,8 @@ lintformat = [
 test = [
   "pytest",
   "pytest-env",
-  "nhflodata @ git+https://github.com/NHFLO/data.git@main"
+  "nhflodata @ git+https://github.com/NHFLO/data.git@main",
+  "nlmod @ git+https://github.com/gwmod/nlmod.git@dev"
 ]
 
 [tool.hatch.envs.default]
