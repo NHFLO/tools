@@ -80,4 +80,4 @@ def test_create_pwn_model_grid_only(tmpdir, model_name="pwn"):
 
     for k in ["botm", "kh", "kv"]:
         assert k in ds, f"Variable {k} should be present in `ds`."
-        assert ~(ds[k] == ds_regis[k]).all(), f"Variable {k} should not be equal to `ds_regis`."
+        assert ~(ds[k].values == ds_regis[k].values).all(), f"Variable {k} should not be equal to `ds_regis`."
