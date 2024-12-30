@@ -15,8 +15,8 @@ logging.basicConfig(level=logging.DEBUG)
 
 # %% create folder structure
 @pytest.mark.slow
-def test_create_sea_model_grid_only(tmpdir, model_name="pwn"):
-    figdir, cachedir = nlmod.util.get_model_dirs(tmpdir)
+def test_create_pwn_model_grid_only(tmpdir, model_name="pwn"):
+    _, cachedir = nlmod.util.get_model_dirs(tmpdir)
     data_path_mensink = get_abs_data_path(name="bodemlagen_pwn_nhdz", version="latest", location="get_from_env")
     data_path_2024 = get_abs_data_path(name="bodemlagen_pwn_2024", version="latest", location="get_from_env")
     data_path_bergen = get_abs_data_path(name="bodemlagen_pwn_bergen", version="latest", location="get_from_env")
