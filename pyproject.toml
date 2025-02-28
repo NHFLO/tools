@@ -3,7 +3,13 @@ build-backend = "hatchling.build"
 requires = ["hatchling>=1.8.0"]
 
 [tool.hatch.build.targets.sdist]
-exclude = ["/.githooks", "/.github", "/.mypy_cache", "/.pytest_cache", "sonar-project.properties"]
+exclude = [
+  "/.githooks",
+  "/.github",
+  "/.mypy_cache",
+  "/.pytest_cache",
+  "sonar-project.properties",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nhflotools"]
@@ -50,15 +56,12 @@ requires-python = ">=3.11"
 version = "0.3.0"
 
 [project.optional-dependencies]
-lintformat = [
-  "hatch",
-  "ruff==0.6.8",
-]
+lintformat = ["hatch", "ruff==0.6.8"]
 test = [
   "pytest",
   "pytest-env",
   "nhflodata @ git+https://github.com/NHFLO/data.git@main",
-  "nlmod @ git+https://github.com/gwmod/nlmod.git@dev"
+  "nlmod @ git+https://github.com/gwmod/nlmod.git@dev",
 ]
 
 [tool.hatch.envs.default]
@@ -71,13 +74,15 @@ features = ["lintformat"]
 
 [tool.hatch.envs.lintformat.scripts]
 format = [
-  "ruff check --fix --unsafe-fixes src/nhflotools/*.py tests", 
-  "ruff format src/nhflotools/*.py tests"
+  "ruff check --fix --unsafe-fixes src/nhflotools/*.py tests",
+  "ruff format src/nhflotools/*.py tests",
 ]
 lint = [
-  "ruff check tests/test_pwnlayers.py src/nhflotools/pwnlayers src/nhflotools/geoconverter src/nhflotools/major_surface_waters.py src/nhflotools/nhi_chloride.py src/nhflotools/panden.py src/nhflotools/polder.py src/nhflotools/well.py"
+  "ruff check tests/test_pwnlayers.py src/nhflotools/pwnlayers src/nhflotools/geoconverter src/nhflotools/major_surface_waters.py src/nhflotools/nhi_chloride.py src/nhflotools/panden.py src/nhflotools/polder.py src/nhflotools/well.py",
 ]
-lintminimal = ["ruff check src/nhflotools/pwnlayers src/nhflotools/geoconverter src/nhflotools/major_surface_waters.py src/nhflotools/nhi_chloride.py src/nhflotools/panden.py src/nhflotools/polder.py src/nhflotools/well.py --config \"lint.select=['E4', 'E7', 'E9', 'F']\""]
+lintminimal = [
+  "ruff check src/nhflotools/pwnlayers src/nhflotools/geoconverter src/nhflotools/major_surface_waters.py src/nhflotools/nhi_chloride.py src/nhflotools/panden.py src/nhflotools/polder.py src/nhflotools/well.py --config \"lint.select=['E4', 'E7', 'E9', 'F']\"",
+]
 
 [tool.hatch.envs.test]
 features = ["test"]
