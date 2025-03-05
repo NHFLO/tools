@@ -203,7 +203,7 @@ def get_pwn_layer_model(
             "kv": layer_model_active["kv"],
             "botm": layer_model_active["botm"],
             "top": layer_model_active["top"],
-            "area": ds_regis["area"],
+            "area": ds_regis.get("area", nlmod.dims.get_area(ds_regis)),
             "xv": ds_regis["xv"],
             "yv": ds_regis["yv"],
             "icvert": ds_regis["icvert"],
