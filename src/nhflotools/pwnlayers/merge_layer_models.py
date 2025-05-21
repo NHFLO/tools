@@ -38,6 +38,7 @@ translate_triwaco_mensink_names_to_index = {
     "S32": 13,
 }
 
+
 def combine_two_layer_models(
     layer_model_regis,
     layer_model_other,
@@ -52,7 +53,7 @@ def combine_two_layer_models(
     Combine the layer models of REGISII and OTHER.
 
     The values of the OTHER layer model are used where the mask_model_other is True. The
-    transition zone is a buffer around layer_model_other to create a smooth transition 
+    transition zone is a buffer around layer_model_other to create a smooth transition
     between layer_model_regis and layer_model_other, and is configured by setting
     transition_model is True.
 
@@ -85,14 +86,14 @@ def combine_two_layer_models(
         Dataset containing the layer model of REGISII. It should contain the
         variables 'kh', 'kv', 'botm'.
     layer_model_other : xarray Dataset
-        Dataset containing the layer model of OTHER on the same grid as layer_model_regis. 
+        Dataset containing the layer model of OTHER on the same grid as layer_model_regis.
         It should contain the variables 'kh', 'kv', 'botm'.
     mask_model_other : xarray Dataset
         Dataset containing the mask of the OTHER layer model. It should contain the variables
         'kh', 'kv', and 'botm'. It should be True where the layer_model_other is defined and False
         where layer_model_regis should be used.
     transition_model : xarray Dataset
-        Dataset containing the transition model of OTHER on the same grid as layer_model_regis. 
+        Dataset containing the transition model of OTHER on the same grid as layer_model_regis.
         It should contain the variables 'kh', 'kv', 'botm'.
         It should be True where the transition between layer_model_regis and layer_model_other
         is defined and False where it is not. Where True, the values of are linearly interpolated
@@ -128,22 +129,22 @@ def combine_two_layer_models(
 
     # Validate input datasets
     _validate_inputs(
-        layer_model_regis, 
+        layer_model_regis,
         layer_model_other,
         mask_model_other,
         transition_model,
         top,
-        dfk, 
-        koppeltabel_header_regis, 
-        koppeltabel_header_other
+        dfk,
+        koppeltabel_header_regis,
+        koppeltabel_header_other,
     )
 
     # Apply mask to other layer model
     for var in ["kh", "kv", "botm"]:
         layer_model_other[var] = layer_model_other[var].where(mask_model_other[var], np.nan)
-        assert (
-            layer_model_other[var].notnull() == mask_model_other[var]
-        ).all(), f"There were nan values present in {var} in cells that should be valid"
+        assert (layer_model_other[var].notnull() == mask_model_other[var]).all(), (
+            f"There were nan values present in {var} in cells that should be valid"
+        )
 
     # Basename can occur multiple times if previously combined
     basenames_regis = [layer.split("_")[0] for layer in layer_model_regis.layer.values]
@@ -156,7 +157,12 @@ def combine_two_layer_models(
     # Names of the layers, including split, in the REGISII and OTHER layer models
     dfk["Regis_split_index"] = (dfk.groupby(koppeltabel_header_regis, sort=False).cumcount() + 1).astype(str)
     dfk["Regis_split"] = dfk[koppeltabel_header_regis].str.cat(dfk["Regis_split_index"], sep="_")
-    dfk["Regis_split_n"] = dfk[koppeltabel_header_regis].map(dfk.groupby(koppeltabel_header_regis)[koppeltabel_header_regis].count())
+    dfk["Regis_split_n"] = dfk[koppeltabel_header_regis].map(
+        dfk.groupby(koppeltabel_header_regis)[koppeltabel_header_regis].count()
+    )
+    dfk["Other_split_n"] = dfk[koppeltabel_header_other].map(
+        dfk.groupby(koppeltabel_header_other)[koppeltabel_header_other].count()
+    )
 
     # Count in how many layers the REGISII and OTHER layers need to be split if previously never combined (default)
     # split_counts_regis_def = (
@@ -167,18 +173,18 @@ def combine_two_layer_models(
     # )
 
     # Split both layer models
-    layer_model_regis_split = layer_model_regis.sel(
-        layer=dfk[koppeltabel_header_regis].values
-    ).assign_coords(layer=dfk["Regis_split"])
-    layer_model_other_split = layer_model_other.sel(
-        layer=dfk[koppeltabel_header_other].values
-    ).assign_coords(layer=dfk["Regis_split"])
-    mask_model_other_split = mask_model_other.sel(
-        layer=dfk[koppeltabel_header_other].values
-    ).assign_coords(layer=dfk["Regis_split"])
-    transition_model_split = transition_model.sel(
-        layer=dfk[koppeltabel_header_other].values
-    ).assign_coords(layer=dfk["Regis_split"])
+    layer_model_regis_split = layer_model_regis.sel(layer=dfk[koppeltabel_header_regis].values).assign_coords(
+        layer=dfk["Regis_split"]
+    )
+    layer_model_other_split = layer_model_other.sel(layer=dfk[koppeltabel_header_other].values).assign_coords(
+        layer=dfk["Regis_split"]
+    )
+    mask_model_other_split = mask_model_other.sel(layer=dfk[koppeltabel_header_other].values).assign_coords(
+        layer=dfk["Regis_split"]
+    )
+    transition_model_split = transition_model.sel(layer=dfk[koppeltabel_header_other].values).assign_coords(
+        layer=dfk["Regis_split"]
+    )
 
     # Categorize layers
     # 1: regis
@@ -193,9 +199,9 @@ def combine_two_layer_models(
     # 2. layer_model_other_split
     # 3. interpolation of transition zone
     out = xr.where(
-        cat == 1, 
-        layer_model_regis_split[["kh", "kv", "botm"]].copy(), 
-        layer_model_other_split[["kh", "kv", "botm"]].copy()  # has nan's in the transition zone
+        cat == 1,
+        layer_model_regis_split[["kh", "kv", "botm"]].copy(),
+        layer_model_other_split[["kh", "kv", "botm"]].copy(),  # has nan's in the transition zone
     )
 
     # Linearly interpolate transition zone inplace
@@ -210,26 +216,45 @@ def combine_two_layer_models(
     thick_regis = nlmod.dims.layers.calculate_thickness(xr.merge((layer_model_regis[["botm"]], {"top": top})))
     thick_other = nlmod.dims.layers.calculate_thickness(xr.merge((layer_model_other[["botm"]], {"top": top})))
 
-    thick_regis_split = thick_regis.sel(
-        layer=dfk[koppeltabel_header_regis].values
-    ).assign_coords({"layer": dfk["Regis_split"].values})
-    thick_other_split = thick_other.sel(
-        layer=dfk[koppeltabel_header_other].values
-    ).assign_coords({"layer": dfk["Regis_split"].values})
+    thick_regis_split = thick_regis.sel(layer=dfk[koppeltabel_header_regis].values).assign_coords({
+        "layer": dfk["Regis_split"].values
+    })
+    thick_other_split = thick_other.sel(layer=dfk[koppeltabel_header_other].values).assign_coords({
+        "layer": dfk["Regis_split"].values
+    })
 
-
-    thick_other_split.coords[koppeltabel_header_regis] = ("layer", dfk[koppeltabel_header_regis])  # Used by groupby
     thick_regis_split.coords[koppeltabel_header_other] = ("layer", dfk[koppeltabel_header_other])  # Used by groupby
-    thick_other_split_sum = thick_other_split.groupby(koppeltabel_header_regis).sum(skipna=True).sel(**{koppeltabel_header_regis: dfk[koppeltabel_header_regis].values})
-    thick_regis_split_sum = thick_regis_split.groupby(koppeltabel_header_other).sum(skipna=True).sel(**{koppeltabel_header_other: dfk[koppeltabel_header_other].values})
-    thick_other_split_sum = thick_other_split_sum.rename({koppeltabel_header_regis: "layer"}).assign_coords(layer=dfk["Regis_split"].values)
-    thick_regis_split_sum = thick_regis_split_sum.rename({koppeltabel_header_other: "layer"}).assign_coords(layer=dfk["Regis_split"].values)
-    
+    thick_other_split.coords[koppeltabel_header_regis] = ("layer", dfk[koppeltabel_header_regis])  # Used by groupby
+    thick_regis_split_sum = (
+        thick_regis_split.groupby(koppeltabel_header_other)
+        .sum(skipna=True)
+        .sel(**{koppeltabel_header_other: dfk[koppeltabel_header_other].values})
+    )
+    thick_other_split_sum = (
+        thick_other_split.groupby(koppeltabel_header_regis)
+        .sum(skipna=True)
+        .sel(**{koppeltabel_header_regis: dfk[koppeltabel_header_regis].values})
+    )
+    thick_regis_split_sum = thick_regis_split_sum.rename({koppeltabel_header_other: "layer"}).assign_coords(
+        layer=dfk["Regis_split"].values
+    )
+    thick_other_split_sum = thick_other_split_sum.rename({koppeltabel_header_regis: "layer"}).assign_coords(
+        layer=dfk["Regis_split"].values
+    )
+
     # Total thickness is zero, leads to division by zero. Division in equal parts if zero-thickness.
     regis_split_n_da = xr.DataArray(dfk["Regis_split_n"].values, coords={"layer": dfk["Regis_split"].values})
-    ratio_regis_split = xr.where(thick_regis_split_sum != 0.0, thick_regis_split / thick_regis_split_sum, 1 / regis_split_n_da)
-    ratio_other_split = xr.where(thick_other_split_sum != 0.0, thick_other_split / thick_other_split_sum, 1 / regis_split_n_da)
+    other_split_n_da = xr.DataArray(dfk["Other_split_n"].values, coords={"layer": dfk["Regis_split"].values})
+    ratio_regis_split = xr.where(
+        thick_regis_split_sum != 0.0, thick_regis_split / thick_regis_split_sum, 1 / other_split_n_da
+    )
+    ratio_other_split = xr.where(
+        thick_other_split_sum != 0.0, thick_other_split / thick_other_split_sum, 1 / regis_split_n_da
+    )
 
+    a = ratio_regis_split.groupby(koppeltabel_header_other).sum()
+    b = ratio_other_split.groupby(koppeltabel_header_regis).sum()
+    xr.where(cat.botm == 1, a, b)
     # Find non-lowest layer of split layers: HLc_1, HLc_2, ..., HLc_5 => True, True, True, True, False
     # Botm of the lowest is already at the correct height.
     # isnonlowestlayer_regis = np.zeros(len(dfk), dtype=bool)
@@ -245,14 +270,13 @@ def combine_two_layer_models(
 
     # Assign botm to newly split regis layers, using nearest neighbor ratios from layer_model_other
     # other contains the data that needs to be extrapolated
-
     for name in dfk.loc[dfk["Regis_split_n"] > 1, "Regis_split"].values:
         ratio = ratio_other_split.sel(layer=name)
         isregis = (cat.botm == 1).sel(layer=name).values
         isother = (cat.botm == 2).sel(layer=name).values
-    
+
         # If all values are valid, no extrapolation is needed
-        if not any(isregis) or not not any(isother):
+        if not any(isregis) or not any(isother):
             continue
 
         points = list(
@@ -276,25 +300,32 @@ def combine_two_layer_models(
             xi=qpoints,
             method="nearest",
         )
-        ratio_regis_split.loc[{"layer": name}].iloc[isregis] = qvalues
+        ratio_regis_split.loc[{"layer": name}].loc[isregis] = qvalues
 
+    # Enrich ratio_other_split with the values of ratio_regis_split for new layers
+    is_new_other_layer = dfk["Other_split_n"].values > 1
+    ratio_other_split.loc[{"layer": is_new_other_layer}] = ratio_regis_split.loc[{"layer": is_new_other_layer}]
 
+    assert ratio_regis_split.groupby(koppeltabel_header_regis).sum() == 1.0
+    assert ratio_other_split.groupby(koppeltabel_header_regis).sum() == 1.0
+    thick_regis_split_sum.coords[koppeltabel_header_regis] = ("layer", dfk[koppeltabel_header_regis])  # Used by groupby
+    thick_other_split_sum.coords[koppeltabel_header_other] = ("layer", dfk[koppeltabel_header_other])  # Used by groupby
+
+    thick_split_cumsum_regis = (
+        (ratio_regis_split * thick_other_split_sum).groupby(koppeltabel_header_regis).cumsum(dim="layer")
+    )
 
     # REGIS is defined everywhere, so assign botm to newly split other layers, using the ratios
     # merge ratio_other_split and ratio_regis_split
     ratio_split = xr.where(cat.botm == 2, ratio_other_split, ratio_regis_split)
     thick_split = xr.where(cat.botm == 2, thick_other_split, ratio_regis_split * thick_regis_split_sum)
 
-
-
-
     # # Evenly split new layers
     # nsplit_regis = dfk[koppeltabel_header_regis].map(dfk.groupby(koppeltabel_header_regis, sort=False)[koppeltabel_header_regis].size())
     # nsplit_other = dfk[koppeltabel_header_other].map(dfk.groupby(koppeltabel_header_other, sort=False)[koppeltabel_header_other].size())
     # thick_ratio_regis = xr.DataArray(data=(nsplit_regis - dfk.groupby(koppeltabel_header_regis, sort=False).cumcount() - 1) / nsplit_regis, coords={"layer": dfk["Regis_split"].values})
     # thick_ratio_other = xr.DataArray(data=(nsplit_other - dfk.groupby(koppeltabel_header_other, sort=False).cumcount() - 1) / nsplit_other, coords={"layer": dfk["Regis_split"].values})
-    
-    
+
     # thick_regis_split = thick_regis.sel(
     #     layer=np.concatenate([v * [k] for k, v in split_counts_regis_def.items()])
     # ).assign_coords({"layer": dfk["Regis_split"].values}) * thick_ratio_regis
@@ -302,12 +333,10 @@ def combine_two_layer_models(
     #     layer=np.concatenate([v * [k] for k, v in split_counts_other_def.items()])
     # ).assign_coords({"layer": dfk["Regis_split"].values}) * thick_ratio_other
 
-
     thick_other_split.coords[koppeltabel_header_regis] = ("layer", dfk[koppeltabel_header_regis])
     thick_regis_split.coords[koppeltabel_header_other] = ("layer", dfk[koppeltabel_header_other])
 
     # thick_other_split.groupby(koppeltabel_header_regis).sum().sel(**{koppeltabel_header_regis: dfk[koppeltabel_header_regis].values})
-    
 
     layer_model_regis_split["botm"] += thick_regis_split
     layer_model_other_split["botm"] += thick_other_split
@@ -346,7 +375,9 @@ def _interpolate_ds(ds, isvalid, ismissing, method="linear"):
             continue
 
         for layer in ds[k].layer.values:
-            _interpolate_da(ds[k].sel(layer=layer), isvalid[k].sel(layer=layer), ismissing[k].sel(layer=layer), method=method)
+            _interpolate_da(
+                ds[k].sel(layer=layer), isvalid[k].sel(layer=layer), ismissing[k].sel(layer=layer), method=method
+            )
 
 
 def _interpolate_da(da, isvalid, ismissing, method="linear"):
@@ -490,11 +521,11 @@ def _interpolate_da(da, isvalid, ismissing, method="linear"):
 
 #     # Validate input datasets
 #     _validate_inputs(
-#         layer_model_regis, 
-#         layer_model_other, 
-#         transition_model, 
-#         dfk, 
-#         koppeltabel_header_regis, 
+#         layer_model_regis,
+#         layer_model_other,
+#         transition_model,
+#         dfk,
+#         koppeltabel_header_regis,
 #         koppeltabel_header_other
 #     )
 
@@ -916,61 +947,66 @@ def _interpolate_da(da, isvalid, ismissing, method="linear"):
 
 
 def _validate_inputs(
-    layer_model_regis, 
+    layer_model_regis,
     layer_model_other,
     mask_model_other,
     transition_model,
     top,
-    dfk, 
-    koppeltabel_header_regis, 
-    koppeltabel_header_other
+    dfk,
+    koppeltabel_header_regis,
+    koppeltabel_header_other,
 ):
     """
     Validate input datasets and parameters for combining layer models.
     """
     # Check model extents match
-    assert (
-        layer_model_regis.attrs["extent"] == layer_model_other.attrs["extent"]
-    ), "Extent of layer models are not equal"
-    
+    assert layer_model_regis.attrs["extent"] == layer_model_other.attrs["extent"], (
+        "Extent of layer models are not equal"
+    )
+
     # Check grid types match
-    assert (
-        layer_model_regis.attrs["gridtype"] == layer_model_other.attrs["gridtype"]
-    ), "Gridtype of layer models are not equal"
-    
+    assert layer_model_regis.attrs["gridtype"] == layer_model_other.attrs["gridtype"], (
+        "Gridtype of layer models are not equal"
+    )
+
     # Check required variables exist in REGIS model
-    assert all(
-        var in layer_model_regis.variables for var in ["kh", "kv", "botm"]
-    ), "Variable 'kh', 'kv', 'botm' is missing in layer_model_regis"
-    
+    assert all(var in layer_model_regis.variables for var in ["kh", "kv", "botm"]), (
+        "Variable 'kh', 'kv', 'botm' is missing in layer_model_regis"
+    )
+
     # Check no NaN values in REGIS model variables
     assert all(layer_model_regis[k].notnull().all() for k in ["kh", "kv", "botm"])
-    
+
     # Check required variables exist in other model
-    assert all(
-        var in layer_model_other.variables for var in ["kh", "kv", "botm"]
-    ), "Variable 'kh', 'kv', 'botm' is missing in layer_model_other"
+    assert all(var in layer_model_other.variables for var in ["kh", "kv", "botm"]), (
+        "Variable 'kh', 'kv', 'botm' is missing in layer_model_other"
+    )
 
     # check mask_model_other variables
-    assert all(
-        np.issubdtype(dtype, bool) for dtype in mask_model_other.dtypes.values()
-    ), "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
-    
+    assert all(np.issubdtype(dtype, bool) for dtype in mask_model_other.dtypes.values()), (
+        "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
+    )
+
     # Check no NaN values in layer model other variables
-    assert all(layer_model_other[k].where(mask_model_other[k], -999).notnull().all() for k in ["kh", "kv", "botm"]), "Variable 'kh', 'kv', 'botm' in layer_model_other not should be NaN where mask_model_other is True"
-    
+    assert all(layer_model_other[k].where(mask_model_other[k], -999).notnull().all() for k in ["kh", "kv", "botm"]), (
+        "Variable 'kh', 'kv', 'botm' in layer_model_other not should be NaN where mask_model_other is True"
+    )
+
     # Validate transition model
-    assert all(
-        var in transition_model.variables for var in ["kh", "kv", "botm"]
-    ), "Variable 'kh', 'kv', or 'botm' is missing in transition_model"
-    
-    assert all(
-        np.issubdtype(dtype, bool) for dtype in transition_model.dtypes.values()
-    ), "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
-    
+    assert all(var in transition_model.variables for var in ["kh", "kv", "botm"]), (
+        "Variable 'kh', 'kv', or 'botm' is missing in transition_model"
+    )
+
+    assert all(np.issubdtype(dtype, bool) for dtype in transition_model.dtypes.values()), (
+        "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
+    )
+
     # No overlap between mask_model_other and transition_model
-    assert all((mask_model_other[k].astype(int) + transition_model[k].astype(int) < 2).all() for k in ["kh", "kv", "botm", "top"]), "mask_model_other and transition_model should not overlap"
-    
+    assert all(
+        (mask_model_other[k].astype(int) + transition_model[k].astype(int) < 2).all()
+        for k in ["kh", "kv", "botm", "top"]
+    ), "mask_model_other and transition_model should not overlap"
+
     # Check layer names don't contain underscores
     assert (
         not dfk[koppeltabel_header_regis].str.contains("_").any()
@@ -979,12 +1015,12 @@ def _validate_inputs(
 
     # Validate top. No nan's and grid should be the same as the others
     assert top.notnull().all(), "Top variable should not contain NaN values"
-    assert all(
-        top.coords["x"].values == layer_model_regis.coords["x"].values
-    ), "Top variable should have the same x coordinates as layer_model_regis"
-    assert all(
-        top.coords["y"].values == layer_model_regis.coords["y"].values
-    ), "Top variable should have the same y coordinates as layer_model_regis"
-    assert all(
-        top.coords["icell2d"].values == layer_model_regis.coords["icell2d"].values
-    ), "Top variable should have the same icell2d coordinates as layer_model_regis"
+    assert all(top.coords["x"].values == layer_model_regis.coords["x"].values), (
+        "Top variable should have the same x coordinates as layer_model_regis"
+    )
+    assert all(top.coords["y"].values == layer_model_regis.coords["y"].values), (
+        "Top variable should have the same y coordinates as layer_model_regis"
+    )
+    assert all(top.coords["icell2d"].values == layer_model_regis.coords["icell2d"].values), (
+        "Top variable should have the same icell2d coordinates as layer_model_regis"
+    )
