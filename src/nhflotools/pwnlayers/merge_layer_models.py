@@ -123,7 +123,7 @@ def combine_two_layer_models(
         3: transition zone
 
     """
-    logger.info("Combining layer models")
+    logger.info("Combining two layer models")
 
     dfk = df_koppeltabel.copy()
 
@@ -141,7 +141,9 @@ def combine_two_layer_models(
 
     # Apply mask to other layer model
     for var in ["kh", "kv", "botm"]:
-        layer_model_other[var] = layer_model_other[var].where(mask_model_other[var], np.nan)
+        layer_model_other[var] = layer_model_other[var].where(
+            mask_model_other[var], np.nan
+        )
         assert (layer_model_other[var].notnull() == mask_model_other[var]).all(), (
             f"There were nan values present in {var} in cells that should be valid"
         )
@@ -151,40 +153,40 @@ def combine_two_layer_models(
     basenames_other = [layer.split("_")[0] for layer in layer_model_other.layer.values]
 
     # Only select part of the table that appears in the two layer models
-    dfk_mask = dfk[koppeltabel_header_regis].isin(basenames_regis) & dfk[koppeltabel_header_other].isin(basenames_other)
+    dfk_mask = dfk[koppeltabel_header_regis].isin(basenames_regis) & dfk[
+        koppeltabel_header_other
+    ].isin(basenames_other)
     dfk = dfk[dfk_mask]
 
-    # Names of the layers, including split, in the REGISII and OTHER layer models
-    dfk["Regis_split_index"] = (dfk.groupby(koppeltabel_header_regis, sort=False).cumcount() + 1).astype(str)
-    dfk["Regis_split"] = dfk[koppeltabel_header_regis].str.cat(dfk["Regis_split_index"], sep="_")
-    dfk["Regis_split_n"] = dfk[koppeltabel_header_regis].map(
-        dfk.groupby(koppeltabel_header_regis)[koppeltabel_header_regis].count()
+    # Split both layer models with evenly-split thickness
+    split_dict_regis = (
+        dfk.groupby(koppeltabel_header_regis, sort=False)[koppeltabel_header_regis]
+        .count()
+        .to_dict()
     )
-    dfk["Other_split_n"] = dfk[koppeltabel_header_other].map(
-        dfk.groupby(koppeltabel_header_other)[koppeltabel_header_other].count()
+    split_dict_other = (
+        dfk.groupby(koppeltabel_header_other, sort=False)[koppeltabel_header_other]
+        .count()
+        .to_dict()
     )
 
-    # Count in how many layers the REGISII and OTHER layers need to be split if previously never combined (default)
-    # split_counts_regis_def = (
-    #     dfk.groupby(koppeltabel_header_regis, sort=False)[koppeltabel_header_regis].count().to_dict()
-    # )
-    # split_counts_other_def = (
-    #     dfk.groupby(koppeltabel_header_other, sort=False)[koppeltabel_header_other].count().to_dict()
-    # )
+    layer_model_regis_split = nlmod.dims.layers.split_layers_ds(
+        ds=layer_model_regis.sel(layer=list(split_dict_regis.keys())),
+        split_dict=split_dict_regis,
+    )
+    layer_model_other_split = nlmod.dims.layers.split_layers_ds(
+        ds=layer_model_other.sel(layer=list(split_dict_other.keys())),
+        split_dict=split_dict_other,
+    )
+    layer_names = layer_model_regis_split.layer.values
+    layer_model_other_split = layer_model_other_split.assign_coords(layer=layer_names)
 
-    # Split both layer models
-    layer_model_regis_split = layer_model_regis.sel(layer=dfk[koppeltabel_header_regis].values).assign_coords(
-        layer=dfk["Regis_split"]
-    )
-    layer_model_other_split = layer_model_other.sel(layer=dfk[koppeltabel_header_other].values).assign_coords(
-        layer=dfk["Regis_split"]
-    )
-    mask_model_other_split = mask_model_other.sel(layer=dfk[koppeltabel_header_other].values).assign_coords(
-        layer=dfk["Regis_split"]
-    )
-    transition_model_split = transition_model.sel(layer=dfk[koppeltabel_header_other].values).assign_coords(
-        layer=dfk["Regis_split"]
-    )
+    mask_model_other_split = mask_model_other.sel(
+        layer=dfk[koppeltabel_header_other].values
+    ).assign_coords(layer=layer_names)
+    transition_model_split = transition_model.sel(
+        layer=dfk[koppeltabel_header_other].values
+    ).assign_coords(layer=layer_names)
 
     # Categorize layers
     # 1: regis
@@ -201,7 +203,9 @@ def combine_two_layer_models(
     out = xr.where(
         cat == 1,
         layer_model_regis_split[["kh", "kv", "botm"]].copy(),
-        layer_model_other_split[["kh", "kv", "botm"]].copy(),  # has nan's in the transition zone
+        layer_model_other_split[
+            ["kh", "kv", "botm"]
+        ].copy(),  # has nan's in the transition zone
     )
 
     # Linearly interpolate transition zone inplace
@@ -210,7 +214,98 @@ def combine_two_layer_models(
     # Add top and remaining metadata
     out["top"] = top
 
+    return out, cat
+    # Adjust botm newly split layers such that the ratio of the thickness is interpolated from the other layer model
+def get_ratios(
+    layer_model_regis,
+    layer_model_other,
+    layer_model_regis_split,
+    layer_model_other_split,
+    dfk,
+    top,
+    koppeltabel_header_regis,
+    koppeltabel_header_other,
+):
+    """
+    Get the ratios of the thickness of the layers in the other layer model
+    to the thickness of the layers in the regis layer model.
+    """
+    # Get the names of the layers in the other layer model
+    layer_names = layer_model_regis_split.layer.values
+
+    # # Get the thickness of the layers in the other layer model
+    # thick_regis = nlmod.dims.layers.calculate_thickness(
+    #     xr.merge((layer_model_regis[["botm"]], {"top": top}))
+    # )
+    # thick_other = nlmod.dims.layers.calculate_thickness(
+    #     xr.merge((layer_model_other[["botm"]], {"top": top}))
+    # )
+    # thick_regis = thick_regis.sel(
+    #     layer=dfk[koppeltabel_header_regis].values
+    # ).assign_coords({"layer": layer_names})
+    # thick_other = thick_other.sel(
+    #     layer=dfk[koppeltabel_header_other].values
+    # ).assign_coords({"layer": layer_names})
+
+    thick_regis_split = nlmod.dims.layers.calculate_thickness(
+        xr.merge((layer_model_regis_split[["botm"]], {"top": top}))
+    )
+    thick_other_split = nlmod.dims.layers.calculate_thickness(
+        xr.merge((layer_model_other_split[["botm"]], {"top": top}))
+    )
+
+    thick_regis_split_sum = (
+        thick_regis_split.groupby(dfk[koppeltabel_header_other])
+        .sum(skipna=True)
+        .sel(**{koppeltabel_header_other: dfk[koppeltabel_header_other].values})
+        )
+    thick_other_split_sum = (
+        thick_other_split.groupby(koppeltabel_header_regis)
+        .sum(skipna=True)
+        .sel(**{koppeltabel_header_regis: dfk[koppeltabel_header_regis].values})
+    )
+
+    ratio_regis_split = thick_regis_split / thick_other
+    ratio_other_split = thick_other_split / thick_regis
+
+
+    return thick_regis_split, thick_other_split
+    thick_regis = nlmod.dims.layers.calculate_thickness(
+        xr.merge((layer_model_regis[["botm"]], {"top": top}))
+    )
+    thick_other = nlmod.dims.layers.calculate_thickness(
+        xr.merge((layer_model_other[["botm"]], {"top": top}))
+    )
+
+    thick_regis_split = thick_regis.sel(
+        layer=dfk[koppeltabel_header_regis].values
+    ).assign_coords({"layer": layer_names})
+    thick_other_split = thick_other.sel(
+        layer=dfk[koppeltabel_header_other].values
+    ).assign_coords({"layer": layer_names})
+
+    ratio_other_split = thick_other_split / 
+
     """All done except for the botm of the newly split layers"""
+    """
+    # Names of the layers, including split, in the REGISII and OTHER layer models
+    # dfk["Regis_split_index"] = (dfk.groupby(koppeltabel_header_regis, sort=False).cumcount() + 1).astype(str)
+    # dfk["Regis_split"] = dfk[koppeltabel_header_regis].str.cat(dfk["Regis_split_index"], sep="_")
+    # dfk["Regis_split_n"] = dfk[koppeltabel_header_regis].map(
+    #     dfk.groupby(koppeltabel_header_regis)[koppeltabel_header_regis].count()
+    # )
+    # dfk["Other_split_n"] = dfk[koppeltabel_header_other].map(
+    #     dfk.groupby(koppeltabel_header_other)[koppeltabel_header_other].count()
+    # )
+
+    # Count in how many layers the REGISII and OTHER layers need to be split if previously never combined (default)
+    # split_counts_regis_def = (
+    #     dfk.groupby(koppeltabel_header_regis, sort=False)[koppeltabel_header_regis].count().to_dict()
+    # )
+    # split_counts_other_def = (
+    #     dfk.groupby(koppeltabel_header_other, sort=False)[koppeltabel_header_other].count().to_dict()
+    # )
+
     # Set botm for new layers in regis and other. First compute thickness of layers
     # Evenly divide the thickness over the new layers in layer_model_regis_split and layer_model_other_split.
     thick_regis = nlmod.dims.layers.calculate_thickness(xr.merge((layer_model_regis[["botm"]], {"top": top})))
@@ -306,7 +401,7 @@ def combine_two_layer_models(
     is_new_other_layer = dfk["Other_split_n"].values > 1
     ratio_other_split.loc[{"layer": is_new_other_layer}] = ratio_regis_split.loc[{"layer": is_new_other_layer}]
 
-    assert ratio_regis_split.groupby(koppeltabel_header_regis).sum() == 1.0
+    assert (ratio_regis_split.groupby(koppeltabel_header_other).sum() == 1.0).all()
     assert ratio_other_split.groupby(koppeltabel_header_regis).sum() == 1.0
     thick_regis_split_sum.coords[koppeltabel_header_regis] = ("layer", dfk[koppeltabel_header_regis])  # Used by groupby
     thick_other_split_sum.coords[koppeltabel_header_other] = ("layer", dfk[koppeltabel_header_other])  # Used by groupby
@@ -343,6 +438,8 @@ def combine_two_layer_models(
 
     return out, cat
 
+"""
+
 
 def _interpolate_ds(ds, isvalid, ismissing, method="linear"):
     """
@@ -376,7 +473,10 @@ def _interpolate_ds(ds, isvalid, ismissing, method="linear"):
 
         for layer in ds[k].layer.values:
             _interpolate_da(
-                ds[k].sel(layer=layer), isvalid[k].sel(layer=layer), ismissing[k].sel(layer=layer), method=method
+                ds[k].sel(layer=layer),
+                isvalid[k].sel(layer=layer),
+                ismissing[k].sel(layer=layer),
+                method=method,
             )
 
 
@@ -983,12 +1083,15 @@ def _validate_inputs(
     )
 
     # check mask_model_other variables
-    assert all(np.issubdtype(dtype, bool) for dtype in mask_model_other.dtypes.values()), (
-        "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
-    )
+    assert all(
+        np.issubdtype(dtype, bool) for dtype in mask_model_other.dtypes.values()
+    ), "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
 
     # Check no NaN values in layer model other variables
-    assert all(layer_model_other[k].where(mask_model_other[k], -999).notnull().all() for k in ["kh", "kv", "botm"]), (
+    assert all(
+        layer_model_other[k].where(mask_model_other[k], -999).notnull().all()
+        for k in ["kh", "kv", "botm"]
+    ), (
         "Variable 'kh', 'kv', 'botm' in layer_model_other not should be NaN where mask_model_other is True"
     )
 
@@ -997,9 +1100,9 @@ def _validate_inputs(
         "Variable 'kh', 'kv', or 'botm' is missing in transition_model"
     )
 
-    assert all(np.issubdtype(dtype, bool) for dtype in transition_model.dtypes.values()), (
-        "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
-    )
+    assert all(
+        np.issubdtype(dtype, bool) for dtype in transition_model.dtypes.values()
+    ), "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
 
     # No overlap between mask_model_other and transition_model
     assert all(
@@ -1021,6 +1124,6 @@ def _validate_inputs(
     assert all(top.coords["y"].values == layer_model_regis.coords["y"].values), (
         "Top variable should have the same y coordinates as layer_model_regis"
     )
-    assert all(top.coords["icell2d"].values == layer_model_regis.coords["icell2d"].values), (
-        "Top variable should have the same icell2d coordinates as layer_model_regis"
-    )
+    assert all(
+        top.coords["icell2d"].values == layer_model_regis.coords["icell2d"].values
+    ), "Top variable should have the same icell2d coordinates as layer_model_regis"
