@@ -39,7 +39,7 @@ def get_chd_ghb_data_from_major_surface_waters(ds, da_name="rws_oppwater", cache
 
     """
     # add north sea to layer model
-    nlmod.read.rws.add_northsea(ds, cachedir=cachedir)
+    ds.update(nlmod.read.rws.get_northsea(ds, cachedir=cachedir))
 
     # extrapolate below northsea
     nlmod.dims.extrapolate_ds(ds)
