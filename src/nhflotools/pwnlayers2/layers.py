@@ -20,7 +20,9 @@ from nhflotools.pwnlayers.utils import fix_missings_botms_and_min_layer_thicknes
 
 logger = logging.getLogger(__name__)
 
-layer_names = pd.Index(['W11', 'S11', 'W12', 'S12', 'W13', 'S13', 'W21', 'S21', 'W22', 'S22', 'W31', 'S31', 'W32', 'S32'], name="layer")
+layer_names = pd.Index(
+    ["W11", "S11", "W12", "S12", "W13", "S13", "W21", "S21", "W22", "S22", "W31", "S31", "W32", "S32"], name="layer"
+)
 
 if version.parse(metadata.version("nlmod")) < version.parse("0.9.1.dev0"):
     msg = "nlmod version 0.9.1.dev0 or higher is required"
@@ -32,7 +34,7 @@ def get_pwn_aquitard_data(
     data_dir: Path,
     ix: GridIntersect = None,
     modelgrid: VertexGrid = None,
-    transition_length: float = 1000.0
+    transition_length: float = 1000.0,
 ) -> dict:
     """
     Interpolate the thickness of the aquitard layers and the top of the aquitard layers using Kriging.
@@ -137,6 +139,7 @@ def get_pwn_aquitard_data(
 
     return data
 
+
 def get_mensink_layer_model(ds_pwn_data, ds_pwn_data_2024, fix_min_layer_thickness=True):
     layer_model_mensink = xr.Dataset(
         {
@@ -152,11 +155,11 @@ def get_mensink_layer_model(ds_pwn_data, ds_pwn_data_2024, fix_min_layer_thickne
         },
     )
     mask = get_mensink_botm(
-                ds_pwn_data,
-                ds_pwn_data_2024,
-                mask=True,
-                transition=False,
-                fix_min_layer_thickness=fix_min_layer_thickness,
+        ds_pwn_data,
+        ds_pwn_data_2024,
+        mask=True,
+        transition=False,
+        fix_min_layer_thickness=fix_min_layer_thickness,
     )
     mask_model_mensink = xr.Dataset(
         {
@@ -167,11 +170,11 @@ def get_mensink_layer_model(ds_pwn_data, ds_pwn_data_2024, fix_min_layer_thickne
         },
     )
     transition = get_mensink_botm(
-                ds_pwn_data,
-                ds_pwn_data_2024,
-                mask=False,
-                transition=True,
-                fix_min_layer_thickness=fix_min_layer_thickness,
+        ds_pwn_data,
+        ds_pwn_data_2024,
+        mask=False,
+        transition=True,
+        fix_min_layer_thickness=fix_min_layer_thickness,
     )
     transition_model_mensink = xr.Dataset(
         {
@@ -184,18 +187,19 @@ def get_mensink_layer_model(ds_pwn_data, ds_pwn_data_2024, fix_min_layer_thickne
 
     for var in ["kh", "kv", "botm"]:
         layer_model_mensink[var] = layer_model_mensink[var].where(mask_model_mensink[var], np.nan)
-        assert (
-            layer_model_mensink[var].notnull() == mask_model_mensink[var]
-        ).all(), f"There were nan values present in {var} in cells that should be valid"
-        assert (
-            (mask_model_mensink[var] + transition_model_mensink[var]) <= 1
-        ).all(), f"There should be no overlap between mask and transition of {var}"
+        assert (layer_model_mensink[var].notnull() == mask_model_mensink[var]).all(), (
+            f"There were nan values present in {var} in cells that should be valid"
+        )
+        assert ((mask_model_mensink[var] + transition_model_mensink[var]) <= 1).all(), (
+            f"There should be no overlap between mask and transition of {var}"
+        )
 
     return (
         layer_model_mensink,
         mask_model_mensink,
         transition_model_mensink,
     )
+
 
 def get_mensink_thickness(data, ds_pwn_data_2024, mask=False, transition=False, fix_min_layer_thickness=True):
     """
@@ -253,18 +257,16 @@ def get_mensink_thickness(data, ds_pwn_data_2024, mask=False, transition=False, 
         logger.warning("Botm is not monotonically decreasing.")
     return out
 
+
 def get_mensink_botm(
-        a: xr.Dataset,
-        a2024: xr.Dataset,
-        mask: bool = False,
-        transition: bool = False,
-        fix_min_layer_thickness=True):
+    a: xr.Dataset, a2024: xr.Dataset, mask: bool = False, transition: bool = False, fix_min_layer_thickness=True
+):
     """
     Calculate the bottom elevation of each layer in the model.
 
     Parameters
     ----------
-    a : 
+    a :
 
     Returns
     -------
@@ -283,6 +285,7 @@ def get_mensink_botm(
         out = ds["botm"]
 
     return out
+
 
 def get_mensink_botm_values(a, a2024):
     out = xr.concat(
@@ -307,6 +310,7 @@ def get_mensink_botm_values(a, a2024):
     )
     return out
 
+
 def get_mensink_botm_mask(a):
     out = xr.concat(
         (
@@ -330,6 +334,7 @@ def get_mensink_botm_mask(a):
     )
     return out
 
+
 def get_mensink_botm_transition(a):
     out = xr.concat(
         (
@@ -352,6 +357,7 @@ def get_mensink_botm_transition(a):
         dim=layer_names,
     )
     return out
+
 
 def get_mensink_kh(data, data_2024, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
     """

@@ -265,7 +265,9 @@ def get_gdf_poi(p, brt, perp=False, centerpoint=None, max_slootafstand=400):
     if perp:
         l_sloot1, l1, psloot1 = get_nearest_surfacewater_geometries(centerpoint, brt)
         l2 = get_perpendicular_search_line_from_point(centerpoint, psloot1, max_slootafstand=max_slootafstand)
-        l_sloot2, psloot2 = get_2nd_closest_surfacewater_geometries(brt, centerpoint, l2, max_slootafstand=max_slootafstand)
+        l_sloot2, psloot2 = get_2nd_closest_surfacewater_geometries(
+            brt, centerpoint, l2, max_slootafstand=max_slootafstand
+        )
         if psloot2 is None:
             gdf_poi = gpd.GeoDataFrame(
                 geometry=[p, l_sloot1, psloot1, l_sloot2, psloot2, centerpoint],
@@ -325,7 +327,9 @@ def get_gdf_poi(p, brt, perp=False, centerpoint=None, max_slootafstand=400):
     else:
         l_sloot1, l1, psloot1 = get_nearest_surfacewater_geometries(p, brt)
         l2, l3, l4 = get_3search_lines_from_point(p, psloot1, max_slootafstand=max_slootafstand)
-        l_sloot2, psloot2 = get_2nd_closest_surfacewater_geometries(brt, p, l2, l3, l4, max_slootafstand=max_slootafstand)
+        l_sloot2, psloot2 = get_2nd_closest_surfacewater_geometries(
+            brt, p, l2, l3, l4, max_slootafstand=max_slootafstand
+        )
         gdf_poi = gpd.GeoDataFrame(
             geometry=[p, l_sloot1, psloot1, l_sloot2, psloot2, l1, l4, l2, l3],
             index=[
@@ -375,7 +379,9 @@ def get_slootafstanden(p, brt, perp=False, max_slootafstand=400):
 
     if perp:
         line_from_sloot = get_perpendicular_search_line_from_point(p, psloot, max_slootafstand=max_slootafstand)
-        l_sloot2, psloot2 = get_2nd_closest_surfacewater_geometries(brt, p, line_from_sloot, max_slootafstand=max_slootafstand)
+        l_sloot2, psloot2 = get_2nd_closest_surfacewater_geometries(
+            brt, p, line_from_sloot, max_slootafstand=max_slootafstand
+        )
         slootafstand = max_slootafstand if l_sloot2 is None else psloot.distance(psloot2)
     else:
         l2, l3, l4 = get_3search_lines_from_point(p, psloot, max_slootafstand=max_slootafstand)
