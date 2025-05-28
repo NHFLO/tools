@@ -44,7 +44,7 @@ def get_chd_ghb_data_from_major_surface_waters(ds, da_name="rws_oppwater", cache
     # extrapolate below northsea
     nlmod.dims.extrapolate_ds(ds)
 
-    rws_ds = nlmod.read.rws.get_surface_water(ds, da_name, cachedir=cachedir, cachename=da_name)
+    rws_ds = nlmod.read.rws.get_surface_water(ds=ds, da_basename=da_name, cachedir=cachedir, cachename=da_name)
 
     # update conductance in north sea  (0.1 day resistance, was 10)
     rws_ds[f"{da_name}_cond"] = xr.where(
