@@ -5,6 +5,7 @@ import xarray as xr
 
 logger = logging.getLogger(__name__)
 
+
 def fix_missings_botms_and_min_layer_thickness(ds):
     """
     Fix missing botms and ensure all layers have a positive thickness.
@@ -38,5 +39,5 @@ def fix_missings_botms_and_min_layer_thickness(ds):
     logger.info(
         "Fixed %.1f%% missing botms using downward fill. Shifted %.1f%% botms to ensure all layers have a positive thickness, assuming more info is in the upper layer.",
         nisnull / ncell * 100.0,
-        (nfixed - nisnull) / ncell * 100.0
+        (nfixed - nisnull) / ncell * 100.0,
     )

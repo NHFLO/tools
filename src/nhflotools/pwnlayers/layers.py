@@ -132,15 +132,17 @@ def get_pwn_layer_model(
     df_koppeltabel = df_koppeltabel[~df_koppeltabel["ASSUMPTION1"].isna()]
 
     if data_path_2024 is not None:
-        ds_pwn_data_2024 = get_pwn_aquitard_data(ds=ds_regis, data_dir=data_path_2024, ix=None, transition_length=length_transition)
+        ds_pwn_data_2024 = get_pwn_aquitard_data(
+            ds=ds_regis, data_dir=data_path_2024, ix=None, transition_length=length_transition
+        )
         layer_model_nhd, mask_model_nhd, transition_model_nhd = get_mensink_layer_model2(
             ds_pwn_data=ds_pwn_data, ds_pwn_data_2024=ds_pwn_data_2024, fix_min_layer_thickness=fix_min_layer_thickness
         )
         thick_layer_model_nhd = nlmod.dims.layers.calculate_thickness(layer_model_nhd)
         assert ~(thick_layer_model_nhd < 0.0).any(), "NHD thickness of layers should be positive"
 
-                # Combine PWN layer model with REGIS layer model
-        layer_model_mensink_bergen_regis, cat_mensink_bergen_regis = combine_two_layer_models(
+        # Combine PWN layer model with REGIS layer model
+        layer_model_mensink_bergen_regis, _ = combine_two_layer_models(
             layer_model_regis=layer_model_regis,
             layer_model_other=layer_model_nhd,
             mask_model_other=mask_model_nhd,
@@ -166,9 +168,8 @@ def get_pwn_layer_model(
         assert ~(thick_layer_model_bergen < 0.0).any(), "Bergen thickness of layers should be positive"
         assert ~(thick_layer_model_regis < 0.0).any(), "Regis thickness of layers should be positive"
 
-
         # Combine PWN layer model with REGIS layer model
-        layer_model_mensink_regis, cat_mensink_regis = combine_two_layer_models(
+        layer_model_mensink_regis, _ = combine_two_layer_models(
             layer_model_regis=layer_model_regis,
             layer_model_other=layer_model_mensink,
             mask_model_other=mask_model_mensink,
@@ -370,12 +371,12 @@ def get_mensink_layer_model(ds_pwn_data, fix_min_layer_thickness=True):
 
     for var in ["kh", "kv", "botm"]:
         layer_model_mensink[var] = layer_model_mensink[var].where(mask_model_mensink[var], np.nan)
-        assert (
-            layer_model_mensink[var].notnull() == mask_model_mensink[var]
-        ).all(), f"There were nan values present in {var} in cells that should be valid"
-        assert (
-            (mask_model_mensink[var] + transition_model_mensink[var]) <= 1
-        ).all(), f"There should be no overlap between mask and transition of {var}"
+        assert (layer_model_mensink[var].notnull() == mask_model_mensink[var]).all(), (
+            f"There were nan values present in {var} in cells that should be valid"
+        )
+        assert ((mask_model_mensink[var] + transition_model_mensink[var]) <= 1).all(), (
+            f"There should be no overlap between mask and transition of {var}"
+        )
 
     return (
         layer_model_mensink,
@@ -429,12 +430,12 @@ def get_bergen_layer_model(ds_pwn_data, fix_min_layer_thickness=True):
 
     for var in ["kh", "kv", "botm"]:
         layer_model_bergen[var] = layer_model_bergen[var].where(mask_model_bergen[var], np.nan)
-        assert (
-            layer_model_bergen[var].notnull() == mask_model_bergen[var]
-        ).all(), f"There were nan values present in {var} in cells that should be valid"
-        assert (
-            (mask_model_bergen[var] + transition_model_bergen[var]) <= 1
-        ).all(), f"There should be no overlap between mask and transition of {var}"
+        assert (layer_model_bergen[var].notnull() == mask_model_bergen[var]).all(), (
+            f"There were nan values present in {var} in cells that should be valid"
+        )
+        assert ((mask_model_bergen[var] + transition_model_bergen[var]) <= 1).all(), (
+            f"There should be no overlap between mask and transition of {var}"
+        )
 
     return (
         layer_model_bergen,

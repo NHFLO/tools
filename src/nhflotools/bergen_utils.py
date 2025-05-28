@@ -468,7 +468,7 @@ def get_surface_water_bgt(oppwaterg, fname_bgt, gwf, cachedir="."):
             bgt = gpd.read_file(fname_bgt).set_index("index")
             bgt = bgt.set_crs(epsg=28992, allow_override=True)
         else:
-            msg = "No stored surface water data!" f" {fname_bgt}"
+            msg = f"No stored surface water data! {fname_bgt}"
             raise FileNotFoundError(msg)
 
         # set the index to the unique column of lokaalID

@@ -148,9 +148,7 @@ def combine_two_layer_models(
 
     # Apply mask to other layer model
     for var in ["kh", "kv", "botm"]:
-        layer_model_other[var] = layer_model_other[var].where(
-            mask_model_other[var], np.nan
-        )
+        layer_model_other[var] = layer_model_other[var].where(mask_model_other[var], np.nan)
         assert (layer_model_other[var].notnull() == mask_model_other[var]).all(), (
             f"There were nan values present in {var} in cells that should be valid"
         )
@@ -160,22 +158,12 @@ def combine_two_layer_models(
     basenames_other = [layer.split("_")[0] for layer in layer_model_other.layer.values]
 
     # Only select part of the table that appears in the two layer models
-    dfk_mask = dfk[koppeltabel_header_regis].isin(basenames_regis) & dfk[
-        koppeltabel_header_other
-    ].isin(basenames_other)
+    dfk_mask = dfk[koppeltabel_header_regis].isin(basenames_regis) & dfk[koppeltabel_header_other].isin(basenames_other)
     dfk = dfk[dfk_mask]
 
     # Split both layer models with evenly-split thickness
-    split_dict_regis = (
-        dfk.groupby(koppeltabel_header_regis, sort=False)[koppeltabel_header_regis]
-        .count()
-        .to_dict()
-    )
-    split_dict_other = (
-        dfk.groupby(koppeltabel_header_other, sort=False)[koppeltabel_header_other]
-        .count()
-        .to_dict()
-    )
+    split_dict_regis = dfk.groupby(koppeltabel_header_regis, sort=False)[koppeltabel_header_regis].count().to_dict()
+    split_dict_other = dfk.groupby(koppeltabel_header_other, sort=False)[koppeltabel_header_other].count().to_dict()
 
     layer_model_regis_split = nlmod.dims.layers.split_layers_ds(
         ds=layer_model_regis.sel(layer=list(split_dict_regis.keys())),
@@ -188,12 +176,12 @@ def combine_two_layer_models(
     layer_names = layer_model_regis_split.layer.values
     layer_model_other_split = layer_model_other_split.assign_coords(layer=layer_names)
 
-    mask_model_other_split = mask_model_other.sel(
-        layer=dfk[koppeltabel_header_other].values
-    ).assign_coords(layer=layer_names)
-    transition_model_split = transition_model.sel(
-        layer=dfk[koppeltabel_header_other].values
-    ).assign_coords(layer=layer_names)
+    mask_model_other_split = mask_model_other.sel(layer=dfk[koppeltabel_header_other].values).assign_coords(
+        layer=layer_names
+    )
+    transition_model_split = transition_model.sel(layer=dfk[koppeltabel_header_other].values).assign_coords(
+        layer=layer_names
+    )
 
     # Categorize layers
     # 1: regis
@@ -214,9 +202,7 @@ def combine_two_layer_models(
     out = xr.where(
         cat == 1,
         layer_model_regis_split[["kh", "kv", "botm"]].copy(),
-        layer_model_other_split[
-            ["kh", "kv", "botm"]
-        ].copy(),  # has nan's in the transition zone
+        layer_model_other_split[["kh", "kv", "botm"]].copy(),  # has nan's in the transition zone
     )
 
     # Add top and remaining metadata
@@ -235,29 +221,50 @@ def combine_two_layer_models(
         thick_split.coords[koppeltabel_header_regis] = ("layer", dfk[koppeltabel_header_regis])
         thick_split.coords[koppeltabel_header_other] = ("layer", dfk[koppeltabel_header_other])
 
-        assert np.isnan(thick_split).sum() == 0, "There are still nan values in the thickness of the layers. Otherwise, fill up with zeros or use skipna arguments in sum/cumsum calls."
-        
+        assert np.isnan(thick_split).sum() == 0, (
+            "There are still nan values in the thickness of the layers. Otherwise, fill up with zeros or use skipna arguments in sum/cumsum calls."
+        )
+
         # Compute the ratios of split regis layers in other model
-        thick_split_sum_other = thick_split.groupby(koppeltabel_header_regis).sum().sel(
-            **{koppeltabel_header_regis: dfk[koppeltabel_header_regis].values}
-        ).rename({koppeltabel_header_regis: "layer"}).assign_coords(layer=layer_names)
-        thick_split_sum_regis = thick_split.groupby(koppeltabel_header_other).sum().sel(
-            **{koppeltabel_header_other: dfk[koppeltabel_header_other].values}
-        ).rename({koppeltabel_header_other: "layer"}).assign_coords(layer=layer_names)
-        thick_split_cumsum_other = thick_split.isel(layer=slice(None, None, -1)).groupby(koppeltabel_header_regis).cumsum().isel(layer=slice(None, None, -1))
-        thick_split_cumsum_regis = thick_split.isel(layer=slice(None, None, -1)).groupby(koppeltabel_header_other).cumsum().isel(layer=slice(None, None, -1))
-        
-        cum_ratio_other = xr.where(thick_split_sum_other != 0.0, (thick_split_cumsum_other - thick_split) / thick_split_sum_other, 0.0)  # Use this to assign the botms your newly split REGIS layers
-        cum_ratio_regis = xr.where(thick_split_sum_regis != 0.0, (thick_split_cumsum_regis - thick_split) / thick_split_sum_regis, 0.0)  # Use this to assign the botms your newly split OTHER layers
+        thick_split_sum_other = (
+            thick_split.groupby(koppeltabel_header_regis)
+            .sum()
+            .sel(**{koppeltabel_header_regis: dfk[koppeltabel_header_regis].values})
+            .rename({koppeltabel_header_regis: "layer"})
+            .assign_coords(layer=layer_names)
+        )
+        thick_split_sum_regis = (
+            thick_split.groupby(koppeltabel_header_other)
+            .sum()
+            .sel(**{koppeltabel_header_other: dfk[koppeltabel_header_other].values})
+            .rename({koppeltabel_header_other: "layer"})
+            .assign_coords(layer=layer_names)
+        )
+        thick_split_cumsum_other = (
+            thick_split.isel(layer=slice(None, None, -1))
+            .groupby(koppeltabel_header_regis)
+            .cumsum()
+            .isel(layer=slice(None, None, -1))
+        )
+        thick_split_cumsum_regis = (
+            thick_split.isel(layer=slice(None, None, -1))
+            .groupby(koppeltabel_header_other)
+            .cumsum()
+            .isel(layer=slice(None, None, -1))
+        )
+
+        cum_ratio_other = xr.where(
+            thick_split_sum_other != 0.0, (thick_split_cumsum_other - thick_split) / thick_split_sum_other, 0.0
+        )  # Use this to assign the botms your newly split REGIS layers
+        cum_ratio_regis = xr.where(
+            thick_split_sum_regis != 0.0, (thick_split_cumsum_regis - thick_split) / thick_split_sum_regis, 0.0
+        )  # Use this to assign the botms your newly split OTHER layers
 
         cum_ratio = xr.zeros_like(out["botm"], dtype=float)
         cum_ratio = xr.where(cat.botm == 1, cum_ratio_regis, cum_ratio)
         cum_ratio = xr.where(cat.botm == 2, cum_ratio_other, cum_ratio)
     else:
-        raise ValueError(
-            f"Unknown transition method: {transition_method}. "
-            "Please use 'linear' or 'keep_ratios'."
-        )
+        raise ValueError(f"Unknown transition method: {transition_method}. Please use 'linear' or 'keep_ratios'.")
 
     return out, cat
 
@@ -392,15 +399,12 @@ def _validate_inputs(
     )
 
     # check mask_model_other variables
-    assert all(
-        np.issubdtype(dtype, bool) for dtype in mask_model_other.dtypes.values()
-    ), "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
+    assert all(np.issubdtype(dtype, bool) for dtype in mask_model_other.dtypes.values()), (
+        "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
+    )
 
     # Check no NaN values in layer model other variables
-    assert all(
-        layer_model_other[k].where(mask_model_other[k], -999).notnull().all()
-        for k in ["kh", "kv", "botm"]
-    ), (
+    assert all(layer_model_other[k].where(mask_model_other[k], -999).notnull().all() for k in ["kh", "kv", "botm"]), (
         "Variable 'kh', 'kv', 'botm' in layer_model_other not should be NaN where mask_model_other is True"
     )
 
@@ -409,9 +413,9 @@ def _validate_inputs(
         "Variable 'kh', 'kv', or 'botm' is missing in transition_model"
     )
 
-    assert all(
-        np.issubdtype(dtype, bool) for dtype in transition_model.dtypes.values()
-    ), "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
+    assert all(np.issubdtype(dtype, bool) for dtype in transition_model.dtypes.values()), (
+        "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
+    )
 
     # No overlap between mask_model_other and transition_model
     assert all(
@@ -433,6 +437,6 @@ def _validate_inputs(
     assert all(top.coords["y"].values == layer_model_regis.coords["y"].values), (
         "Top variable should have the same y coordinates as layer_model_regis"
     )
-    assert all(
-        top.coords["icell2d"].values == layer_model_regis.coords["icell2d"].values
-    ), "Top variable should have the same icell2d coordinates as layer_model_regis"
+    assert all(top.coords["icell2d"].values == layer_model_regis.coords["icell2d"].values), (
+        "Top variable should have the same icell2d coordinates as layer_model_regis"
+    )

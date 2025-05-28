@@ -9,5 +9,5 @@ def show_nhflo_versions():
             pkg_version = version(pkg)
         except Exception:
             pkg_version = "Not installed"
-        msg += f"{pkg :<13s}: {pkg_version}\n"
+        msg += f"{pkg:<13s}: {pkg_version}\n"
     print(msg)
