@@ -7,7 +7,6 @@ from scipy.interpolate import griddata
 
 from nhflotools.pwnlayers.utils import fix_missings_botms_and_min_layer_thickness
 
-
 logger = logging.getLogger(__name__)
 
 translate_triwaco_bergen_names_to_index = {
