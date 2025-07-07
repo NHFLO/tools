@@ -144,6 +144,14 @@ def combine_two_layer_models(
         koppeltabel_header_regis,
         koppeltabel_header_other,
     )
+    layer_model_regis = layer_model_regis.copy()
+    layer_model_other = layer_model_other.copy()
+    layer_model_regis["top"] = top.copy()
+    layer_model_other["top"] = top.copy()
+
+        # Fix minimum layer thickness in REGIS and OTHER. Still required to fix transition zone.
+    fix_missings_botms_and_min_layer_thickness(layer_model_regis)
+    fix_missings_botms_and_min_layer_thickness(layer_model_other)
 
     # Apply mask to other layer model
     for var in ["kh", "kv", "botm"]:
