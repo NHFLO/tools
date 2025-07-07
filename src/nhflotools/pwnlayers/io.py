@@ -231,7 +231,7 @@ def _read_bergen_basis_aquitards(
             # Ignore point indices to suppress warning and is not used here.
             gdf_pts = gpd.read_file(
                 os.path.join(fd, f"{pointnames[name]}.shp"),
-                ignore_fields=[pointnames[name].upper()],
+                columns=["VALUE"],
             )
             ok = pykrige.ok.OrdinaryKriging(
                 gdf_pts.geometry.x.values,
@@ -378,7 +378,7 @@ def _read_bergen_thickness_aquitards(
             # Ignore point indices to suppress warning and is not used here.
             gdf_pts = gpd.read_file(
                 os.path.join(fd, f"{pointnames[name]}.shp"),
-                ignore_fields=[pointnames[name].upper()],
+                columns=["VALUE"],
             )
             ok = pykrige.ok.OrdinaryKriging(
                 gdf_pts.geometry.x.values,
@@ -583,7 +583,7 @@ def _read_mask_of_aquifers(ds, pathname, length_transition=100.0, ix=None):
             "Maskers_kdwaarden_aquitards",
             f"masker_aquitard{name}_kd.shp",
         )
-        gdf = gpd.read_file(fname, ignore_fields=["MASKER_AQU"])
+        gdf = gpd.read_file(fname, columns=["VALUE"])
         gdf = make_valid_polygons(gdf)
         ds_out[key] = nlmod.dims.gdf_to_da(gdf, ds, column="VALUE", agg_method="nearest", ix=ix)
         ds_out[f"{key}_mask"] = ~np.isnan(ds_out[key])

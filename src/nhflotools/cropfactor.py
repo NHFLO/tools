@@ -1,15 +1,10 @@
-import nlmod
-import xarray as xr
 import geopandas as gpd
+import nlmod
 import numpy as np
+import xarray as xr
 
-def apply_cropfactor(
-    ds=None,
-    cropfactor_dir=None,
-    gwf=None,
-    Adjust_for_groundwaterdepth=False,
-    Groundwaterdepth=None
-):
+
+def apply_cropfactor(ds=None, cropfactor_dir=None, gwf=None, Adjust_for_groundwaterdepth=False, Groundwaterdepth=None):
     """
     Apply a cropfactor to recharge in de ds.
 
@@ -41,53 +36,63 @@ def apply_cropfactor(
     """
     # Reading the cropfactor shapefile and interpolating to the grid
     cropfactor_shp = gpd.read_file(cropfactor_dir)
-    grid_cropfactor = nlmod.grid.gdf_to_grid(cropfactor_shp.loc[:, ['VALUE', "geometry"]], gwf)
+    grid_cropfactor = nlmod.grid.gdf_to_grid(cropfactor_shp.loc[:, ["VALUE", "geometry"]], gwf)
     fields_methods2 = {"VALUE": "area_weighted"}
     celldata_cropfactor = nlmod.grid.aggregate_vector_per_cell(grid_cropfactor, fields_methods=fields_methods2)
     celldata_cropfactor["x"] = ds.sel(icell2d=celldata_cropfactor.index)["x"]
     celldata_cropfactor["y"] = ds.sel(icell2d=celldata_cropfactor.index)["y"]
     cropfactor = xr.full_like(ds.top, np.nan)
-    cropfactor.loc[dict(icell2d=celldata_cropfactor.index)] = celldata_cropfactor['VALUE'].values
-    ds['cropfactor'] = cropfactor
+    cropfactor.loc[dict(icell2d=celldata_cropfactor.index)] = celldata_cropfactor["VALUE"].values
+    ds["cropfactor"] = cropfactor
 
     if Adjust_for_groundwaterdepth:
         # Reading the average depth of the groundwater shapefile and interpolating to the grid
         avg_depth_groundwater_shp = gpd.read_file(avg_depth_groundwater_shp_dir)
-        grid_avg_depth_groundwater = nlmod.grid.gdf_to_grid(avg_depth_groundwater_shp.loc[:, ['diepte_gws', "geometry"]], gwf)
+        grid_avg_depth_groundwater = nlmod.grid.gdf_to_grid(
+            avg_depth_groundwater_shp.loc[:, ["diepte_gws", "geometry"]], gwf
+        )
         fields_methods2 = {"diepte_gws": "area_weighted"}
-        celldata_avg_depth_groundwater = nlmod.grid.aggregate_vector_per_cell(grid_avg_depth_groundwater, fields_methods=fields_methods2)
+        celldata_avg_depth_groundwater = nlmod.grid.aggregate_vector_per_cell(
+            grid_avg_depth_groundwater, fields_methods=fields_methods2
+        )
         celldata_avg_depth_groundwater["x"] = ds.sel(icell2d=celldata_avg_depth_groundwater.index)["x"]
         celldata_avg_depth_groundwater["y"] = ds.sel(icell2d=celldata_avg_depth_groundwater.index)["y"]
         avg_depth_groundwater = xr.full_like(ds.top, np.nan)
-        avg_depth_groundwater.loc[dict(icell2d=celldata_avg_depth_groundwater.index)] = celldata_avg_depth_groundwater['diepte_gws'].values
-        ds['avg_depth_groundwater'] = avg_depth_groundwater
+        avg_depth_groundwater.loc[dict(icell2d=celldata_avg_depth_groundwater.index)] = celldata_avg_depth_groundwater[
+            "diepte_gws"
+        ].values
+        ds["avg_depth_groundwater"] = avg_depth_groundwater
 
         # Start loop to prepare recharge data for every timestep
-        for dag in range(len(ds['precipitation'])-1):
+        for dag in range(len(ds["precipitation"]) - 1):
+            # ds['avg_depth_groundwater'] = average groundwater depth per modelcell relative to ground level in meter.
 
-        # ds['avg_depth_groundwater'] = average groundwater depth per modelcell relative to ground level in meter.
-
-            Recharge = ds['precipitation'][dag]
-            Recharge = xr.where((ds['avg_depth_groundwater'] < 0.5),
-                                        Recharge - ((ds['cropfactor'] * ds['evaporation'][dag])),
-                                        Recharge)
-            Recharge = xr.where((ds['avg_depth_groundwater'] > 0.5) & (ds['avg_depth_groundwater'] < 2.5),
-                                        Recharge - (1 -((ds['avg_depth_groundwater']-0.5)/8)) * ((ds['cropfactor'] * ds['evaporation'][dag])),
-                                        Recharge)
-            Recharge = xr.where((ds['avg_depth_groundwater'] > 2.5),
-                                        Recharge - (0.75 * (ds['cropfactor'] * ds['evaporation'][dag])),
-                                        Recharge)
+            Recharge = ds["precipitation"][dag]
+            Recharge = xr.where(
+                (ds["avg_depth_groundwater"] < 0.5), Recharge - (ds["cropfactor"] * ds["evaporation"][dag]), Recharge
+            )
+            Recharge = xr.where(
+                (ds["avg_depth_groundwater"] > 0.5) & (ds["avg_depth_groundwater"] < 2.5),
+                Recharge
+                - (1 - ((ds["avg_depth_groundwater"] - 0.5) / 8)) * (ds["cropfactor"] * ds["evaporation"][dag]),
+                Recharge,
+            )
+            Recharge = xr.where(
+                (ds["avg_depth_groundwater"] > 2.5),
+                Recharge - (0.75 * (ds["cropfactor"] * ds["evaporation"][dag])),
+                Recharge,
+            )
             to_MODFLOW = Recharge
-            ds['recharge'][dag] = to_MODFLOW
+            ds["recharge"][dag] = to_MODFLOW
     else:
-        for dag in range(len(ds['precipitation'])-1):
-            Recharge = ds['precipitation'][dag]
-            Recharge = Recharge - (ds['cropfactor'] * ds['evaporation'][dag])
+        for dag in range(len(ds["precipitation"]) - 1):
+            Recharge = ds["precipitation"][dag]
+            Recharge = Recharge - (ds["cropfactor"] * ds["evaporation"][dag])
             to_MODFLOW = Recharge
-            ds['recharge'][dag] = to_MODFLOW
-    
+            ds["recharge"][dag] = to_MODFLOW
+
     # fix recharge for steady state warmup
-    ds['recharge'][0] = 0.0012
+    ds["recharge"][0] = 0.0012
 
     # Create RCH package
     rch = nlmod.gwf.rch(ds, gwf, mask=ds["northsea"] == 0)

@@ -36,7 +36,7 @@ def drn_from_waterboard_data(ds, gwf, wb="Hollands Noorderkwartier", cbot=1.0):
     flopy.modflow.ModflowGwfdrn
         DRN package.
     """
-    gdf = nlmod.read.waterboard.get_data(wb=wb, data_kind="level_areas", extent=ds.extent, verify=False)
+    gdf = nlmod.read.waterboard.download_data(wb=wb, data_kind="level_areas", extent=ds.extent, verify=False)
 
     if gdf.empty:
         return None

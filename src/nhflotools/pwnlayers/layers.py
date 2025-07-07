@@ -7,8 +7,8 @@ import xarray as xr
 from nlmod import cache
 from scipy.interpolate import griddata
 
-from nhflotools.pwnlayers.merge_layer_models import combine_two_layer_models
 from nhflotools.pwnlayers.io import read_pwn_data2
+from nhflotools.pwnlayers.merge_layer_models import combine_two_layer_models
 from nhflotools.pwnlayers.utils import fix_missings_botms_and_min_layer_thickness
 from nhflotools.pwnlayers2.layers import get_mensink_layer_model as get_mensink_layer_model2
 from nhflotools.pwnlayers2.layers import get_pwn_aquitard_data
