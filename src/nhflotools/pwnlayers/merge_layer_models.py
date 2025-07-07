@@ -199,10 +199,6 @@ def combine_two_layer_models(
     cat = cat.where(~transition_model_split[["kh", "kv", "botm"]], other=3)
 
     # Prepare out
-    # Fix minimum layer thickness in REGIS and OTHER. Still required to fix transition zone.
-    fix_missings_botms_and_min_layer_thickness(layer_model_regis_split)
-    fix_missings_botms_and_min_layer_thickness(layer_model_other_split)
-
     # 1. layer_model_regis_split
     # 2. layer_model_other_split
     # 3. interpolation of transition zone
