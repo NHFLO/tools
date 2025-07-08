@@ -132,6 +132,8 @@ def combine_two_layer_models(
     logger.info("Combining two layer models")
 
     dfk = df_koppeltabel.copy()
+    dfk_upper = dfk[~dfk[koppeltabel_header_other].isna()]
+    dfk_lower = dfk[dfk[koppeltabel_header_other].isna()]
 
     # Validate input datasets
     _validate_inputs(
@@ -140,7 +142,7 @@ def combine_two_layer_models(
         mask_model_other,
         transition_model,
         top,
-        dfk,
+        dfk_upper,
         koppeltabel_header_regis,
         koppeltabel_header_other,
     )
@@ -164,13 +166,14 @@ def combine_two_layer_models(
     basenames_regis = [layer.split("_")[0] for layer in layer_model_regis.layer.values]
     basenames_other = [layer.split("_")[0] for layer in layer_model_other.layer.values]
 
+    """All the layers that are being coupled"""
     # Only select part of the table that appears in the two layer models
-    dfk_mask = dfk[koppeltabel_header_regis].isin(basenames_regis) & dfk[koppeltabel_header_other].isin(basenames_other)
-    dfk = dfk[dfk_mask]
+    dfk_mask = dfk_upper[koppeltabel_header_regis].isin(basenames_regis)
+    dfk_upper = dfk_upper[dfk_mask]
 
     # Split both layer models with evenly-split thickness
-    split_dict_regis = dfk.groupby(koppeltabel_header_regis, sort=False)[koppeltabel_header_regis].count().to_dict()
-    split_dict_other = dfk.groupby(koppeltabel_header_other, sort=False)[koppeltabel_header_other].count().to_dict()
+    split_dict_regis = dfk_upper.groupby(koppeltabel_header_regis, sort=False)[koppeltabel_header_regis].count().to_dict()
+    split_dict_other = dfk_upper.groupby(koppeltabel_header_other, sort=False)[koppeltabel_header_other].count().to_dict()
 
     layer_model_regis_split = nlmod.dims.layers.split_layers_ds(
         ds=layer_model_regis.sel(layer=list(split_dict_regis.keys())),
@@ -183,10 +186,10 @@ def combine_two_layer_models(
     layer_names = layer_model_regis_split.layer.values
     layer_model_other_split = layer_model_other_split.assign_coords(layer=layer_names)
 
-    mask_model_other_split = mask_model_other.sel(layer=dfk[koppeltabel_header_other].values).assign_coords(
+    mask_model_other_split = mask_model_other.sel(layer=dfk_upper[koppeltabel_header_other].values).assign_coords(
         layer=layer_names
     )
-    transition_model_split = transition_model.sel(layer=dfk[koppeltabel_header_other].values).assign_coords(
+    transition_model_split = transition_model.sel(layer=dfk_upper[koppeltabel_header_other].values).assign_coords(
         layer=layer_names
     )
 
@@ -221,8 +224,8 @@ def combine_two_layer_models(
         )
         # cat.botm.isel(layer=slice(4), icell2d=slice(4))
         thick_split = nlmod.dims.layers.calculate_thickness(out)
-        thick_split.coords[koppeltabel_header_regis] = ("layer", dfk[koppeltabel_header_regis])
-        thick_split.coords[koppeltabel_header_other] = ("layer", dfk[koppeltabel_header_other])
+        thick_split.coords[koppeltabel_header_regis] = ("layer", dfk_upper[koppeltabel_header_regis])
+        thick_split.coords[koppeltabel_header_other] = ("layer", dfk_upper[koppeltabel_header_other])
 
         assert np.isnan(thick_split).sum() == 0, (
             "There are still nan values in the thickness of the layers. Otherwise, fill up with zeros or use skipna arguments in sum/cumsum calls."
@@ -232,14 +235,14 @@ def combine_two_layer_models(
         thick_split_sum_other = (
             thick_split.groupby(koppeltabel_header_regis)
             .sum()
-            .sel(**{koppeltabel_header_regis: dfk[koppeltabel_header_regis].values})
+            .sel(**{koppeltabel_header_regis: dfk_upper[koppeltabel_header_regis].values})
             .rename({koppeltabel_header_regis: "layer"})
             .assign_coords(layer=layer_names)
         )
         thick_split_sum_regis = (
             thick_split.groupby(koppeltabel_header_other)
             .sum()
-            .sel(**{koppeltabel_header_other: dfk[koppeltabel_header_other].values})
+            .sel(**{koppeltabel_header_other: dfk_upper[koppeltabel_header_other].values})
             .rename({koppeltabel_header_other: "layer"})
             .assign_coords(layer=layer_names)
         )
@@ -267,9 +270,34 @@ def combine_two_layer_models(
         cum_ratio = xr.where(cat.botm == 1, cum_ratio_regis, cum_ratio)
         cum_ratio = xr.where(cat.botm == 2, cum_ratio_other, cum_ratio)
     else:
-        raise ValueError(f"Unknown transition method: {transition_method}. Please use 'linear' or 'keep_ratios'.")
+        msg = f"Unknown transition method: {transition_method}. Please use 'linear' or 'keep_ratios'."
+        raise ValueError(msg)
 
-    return out, cat
+    """All the layers that are not being coupled are added to the out dataset"""
+    # Add the layers that are not being coupled
+    layer_model_regis_not_coupled = layer_model_regis.sel(
+        layer=dfk_lower[koppeltabel_header_regis].values
+    )
+    out_upper_lower = xr.concat(
+        [
+            out,
+            layer_model_regis_not_coupled[["kh", "kv", "botm"]].assign_coords(
+                layer=layer_model_regis_not_coupled.layer.values
+            ),
+        ],
+        dim="layer",
+    )
+    cat_upper_lower = xr.concat(
+        [
+            cat,
+            xr.ones_like(layer_model_regis_not_coupled[["kh", "kv", "botm"]], dtype=int).assign_coords(
+                layer=layer_model_regis_not_coupled.layer.values
+            ),
+        ],
+        dim="layer",
+    )
+
+    return out_upper_lower, cat_upper_lower
 
 
 def _interpolate_ds(ds, isvalid, ismissing, method="linear"):
