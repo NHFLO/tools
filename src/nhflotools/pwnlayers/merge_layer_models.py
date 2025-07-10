@@ -164,7 +164,6 @@ def combine_two_layer_models(
 
     # Basename can occur multiple times if previously combined
     basenames_regis = [layer.split("_")[0] for layer in layer_model_regis.layer.values]
-    basenames_other = [layer.split("_")[0] for layer in layer_model_other.layer.values]
 
     """All the layers that are being coupled"""
     # Only select part of the table that appears in the two layer models
