@@ -279,22 +279,28 @@ def combine_two_layer_models(
     )
     out_upper_lower = xr.concat(
         [
-            out,
+            out[["kh", "kv", "botm"]],
             layer_model_regis_not_coupled[["kh", "kv", "botm"]].assign_coords(
                 layer=layer_model_regis_not_coupled.layer.values
             ),
         ],
         dim="layer",
     )
+    out_upper_lower["top"] = top
+
+    # The botm of the upper layermodel may cross the botm of the first layers opf the lower layermodel.
+    fix_missings_botms_and_min_layer_thickness(out_upper_lower)
+
     cat_upper_lower = xr.concat(
         [
-            cat,
+            cat[["kh", "kv", "botm"]],
             xr.ones_like(layer_model_regis_not_coupled[["kh", "kv", "botm"]], dtype=int).assign_coords(
                 layer=layer_model_regis_not_coupled.layer.values
             ),
         ],
         dim="layer",
     )
+
 
     return out_upper_lower, cat_upper_lower
 
@@ -451,7 +457,8 @@ def _validate_inputs(
         f"All values in koppeltabel[{koppeltabel_header_regis}] should be present in layer_model_regis.layer"
     )
 
-    assert dfk[koppeltabel_header_other].isin(layer_model_other.layer.values).all(), (
+    other_layers = dfk[koppeltabel_header_other].dropna().unique()
+    assert np.isin(layer_model_other.layer.values, other_layers).all(), (
         f"All values in koppeltabel[{koppeltabel_header_other}] should be present in layer_model_other.layer"
     )
 
