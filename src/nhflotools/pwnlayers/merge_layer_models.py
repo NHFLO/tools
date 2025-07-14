@@ -447,6 +447,14 @@ def _validate_inputs(
         "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
     )
 
+    assert dfk[koppeltabel_header_regis].isin(layer_model_regis.layer.values).all(), (
+        f"All values in koppeltabel[{koppeltabel_header_regis}] should be present in layer_model_regis.layer"
+    )
+
+    assert dfk[koppeltabel_header_other].isin(layer_model_other.layer.values).all(), (
+        f"All values in koppeltabel[{koppeltabel_header_other}] should be present in layer_model_other.layer"
+    )
+
     # No overlap between mask_model_other and transition_model
     assert all(
         (mask_model_other[k].astype(int) + transition_model[k].astype(int) < 2).all()
