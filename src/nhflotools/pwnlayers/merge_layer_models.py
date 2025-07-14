@@ -40,6 +40,7 @@ translate_triwaco_mensink_names_to_index = {
 
 
 def combine_two_layer_models(
+    *,
     layer_model_regis,
     layer_model_other,
     mask_model_other,
@@ -49,6 +50,7 @@ def combine_two_layer_models(
     koppeltabel_header_regis="Regis II v2.2",
     koppeltabel_header_other="ASSUMPTION1",
     transition_method="linear",
+    remove_nan_layers=True,
 ):
     """
     Combine the layer models of REGISII and OTHER.
@@ -117,6 +119,10 @@ def combine_two_layer_models(
         from the REGISII layer model to the OTHER layer model. If 'keep_ratios', the ratios of the
         thickness of the layers in the OTHER layer model to the thickness of the layers in the
         REGISII layer model are used to compute the botm of the newly split layers.
+    remove_nan_layers : bool, optional
+        if True layers that are inactive everywhere are removed from the model.
+        If False nan layers are kept which might be usefull if you want
+        to keep some layers that exist in other models. The default is True.
 
     Returns
     -------
@@ -300,7 +306,9 @@ def combine_two_layer_models(
         ],
         dim="layer",
     )
-
+    if remove_nan_layers:
+        out_upper_lower = nlmod.dims.layers.remove_inactive_layers(out_upper_lower)
+        cat_upper_lower = cat_upper_lower.sel(layer=out_upper_lower.layer.values)
 
     return out_upper_lower, cat_upper_lower
 
