@@ -177,8 +177,12 @@ def combine_two_layer_models(
     dfk_upper = dfk_upper[dfk_mask]
 
     # Split both layer models with evenly-split thickness
-    split_dict_regis = dfk_upper.groupby(koppeltabel_header_regis, sort=False)[koppeltabel_header_regis].count().to_dict()
-    split_dict_other = dfk_upper.groupby(koppeltabel_header_other, sort=False)[koppeltabel_header_other].count().to_dict()
+    split_dict_regis = (
+        dfk_upper.groupby(koppeltabel_header_regis, sort=False)[koppeltabel_header_regis].count().to_dict()
+    )
+    split_dict_other = (
+        dfk_upper.groupby(koppeltabel_header_other, sort=False)[koppeltabel_header_other].count().to_dict()
+    )
 
     layer_model_regis_split = nlmod.dims.layers.split_layers_ds(
         ds=layer_model_regis.sel(layer=list(split_dict_regis.keys())),
@@ -224,9 +228,8 @@ def combine_two_layer_models(
         _interpolate_ds(out, isvalid=cat != 3, ismissing=cat == 3, method="linear")
 
     elif transition_method == "keep_ratios":
-        raise NotImplementedError(
-            "The 'keep_ratios' transition method is not implemented yet. Please use 'linear' instead."
-        )
+        msg = "The 'keep_ratios' transition method is not implemented yet. Please use 'linear' instead."
+        raise NotImplementedError(msg)
         # cat.botm.isel(layer=slice(4), icell2d=slice(4))
         thick_split = nlmod.dims.layers.calculate_thickness(out)
         thick_split.coords[koppeltabel_header_regis] = ("layer", dfk_upper[koppeltabel_header_regis])
@@ -280,9 +283,7 @@ def combine_two_layer_models(
 
     """All the layers that are not being coupled are added to the out dataset"""
     # Add the layers that are not being coupled
-    layer_model_regis_not_coupled = layer_model_regis.sel(
-        layer=dfk_lower[koppeltabel_header_regis].values
-    )
+    layer_model_regis_not_coupled = layer_model_regis.sel(layer=dfk_lower[koppeltabel_header_regis].values)
     out_upper_lower = xr.concat(
         [
             out[["kh", "kv", "botm"]],
@@ -339,7 +340,7 @@ def _interpolate_ds(ds, isvalid, ismissing, method="linear"):
           tessellate the input point set to N-D
           simplices, and interpolate linearly on each simplex.
     """
-    for k in ds.keys():
+    for k in ds:
         if "layer" not in ds[k].dims:
             continue
 
@@ -416,9 +417,7 @@ def _validate_inputs(
     koppeltabel_header_regis,
     koppeltabel_header_other,
 ):
-    """
-    Validate input datasets and parameters for combining layer models.
-    """
+    """Validate input datasets and parameters for combining layer models."""
     # Check model extents match
     assert layer_model_regis.attrs["extent"] == layer_model_other.attrs["extent"], (
         "Extent of layer models are not equal"
