@@ -131,10 +131,6 @@ def combine_two_layer_models(
     """
     logger.info("Combining two layer models")
 
-    dfk = df_koppeltabel.copy()
-    dfk_upper = dfk[~dfk[koppeltabel_header_other].isna()]
-    dfk_lower = dfk[dfk[koppeltabel_header_other].isna()]
-
     # Validate input datasets
     _validate_inputs(
         layer_model_regis,
@@ -142,7 +138,7 @@ def combine_two_layer_models(
         mask_model_other,
         transition_model,
         top,
-        dfk_upper,
+        df_koppeltabel,
         koppeltabel_header_regis,
         koppeltabel_header_other,
     )
@@ -150,6 +146,10 @@ def combine_two_layer_models(
     layer_model_other = layer_model_other.copy()
     layer_model_regis["top"] = top.copy()
     layer_model_other["top"] = top.copy()
+
+    dfk = df_koppeltabel.copy()
+    dfk_upper = dfk[~dfk[koppeltabel_header_other].isna()]
+    dfk_lower = dfk[dfk[koppeltabel_header_other].isna()]
 
     # Fix minimum layer thickness in REGIS and OTHER. Still required to fix transition zone.
     fix_missings_botms_and_min_layer_thickness(layer_model_regis)
