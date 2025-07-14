@@ -40,6 +40,7 @@ translate_triwaco_mensink_names_to_index = {
 
 
 def combine_two_layer_models(
+    *,
     layer_model_regis,
     layer_model_other,
     mask_model_other,
@@ -49,6 +50,7 @@ def combine_two_layer_models(
     koppeltabel_header_regis="Regis II v2.2",
     koppeltabel_header_other="ASSUMPTION1",
     transition_method="linear",
+    remove_nan_layers=True,
 ):
     """
     Combine the layer models of REGISII and OTHER.
@@ -117,6 +119,10 @@ def combine_two_layer_models(
         from the REGISII layer model to the OTHER layer model. If 'keep_ratios', the ratios of the
         thickness of the layers in the OTHER layer model to the thickness of the layers in the
         REGISII layer model are used to compute the botm of the newly split layers.
+    remove_nan_layers : bool, optional
+        if True layers that are inactive everywhere are removed from the model.
+        If False nan layers are kept which might be usefull if you want
+        to keep some layers that exist in other models. The default is True.
 
     Returns
     -------
@@ -131,8 +137,6 @@ def combine_two_layer_models(
     """
     logger.info("Combining two layer models")
 
-    dfk = df_koppeltabel.copy()
-
     # Validate input datasets
     _validate_inputs(
         layer_model_regis,
@@ -140,7 +144,7 @@ def combine_two_layer_models(
         mask_model_other,
         transition_model,
         top,
-        dfk,
+        df_koppeltabel,
         koppeltabel_header_regis,
         koppeltabel_header_other,
     )
@@ -148,6 +152,10 @@ def combine_two_layer_models(
     layer_model_other = layer_model_other.copy()
     layer_model_regis["top"] = top.copy()
     layer_model_other["top"] = top.copy()
+
+    dfk = df_koppeltabel.copy()
+    dfk_upper = dfk[~dfk[koppeltabel_header_other].isna()]
+    dfk_lower = dfk[dfk[koppeltabel_header_other].isna()]
 
     # Fix minimum layer thickness in REGIS and OTHER. Still required to fix transition zone.
     fix_missings_botms_and_min_layer_thickness(layer_model_regis)
@@ -162,15 +170,19 @@ def combine_two_layer_models(
 
     # Basename can occur multiple times if previously combined
     basenames_regis = [layer.split("_")[0] for layer in layer_model_regis.layer.values]
-    basenames_other = [layer.split("_")[0] for layer in layer_model_other.layer.values]
 
+    """All the layers that are being coupled"""
     # Only select part of the table that appears in the two layer models
-    dfk_mask = dfk[koppeltabel_header_regis].isin(basenames_regis) & dfk[koppeltabel_header_other].isin(basenames_other)
-    dfk = dfk[dfk_mask]
+    dfk_mask = dfk_upper[koppeltabel_header_regis].isin(basenames_regis)
+    dfk_upper = dfk_upper[dfk_mask]
 
     # Split both layer models with evenly-split thickness
-    split_dict_regis = dfk.groupby(koppeltabel_header_regis, sort=False)[koppeltabel_header_regis].count().to_dict()
-    split_dict_other = dfk.groupby(koppeltabel_header_other, sort=False)[koppeltabel_header_other].count().to_dict()
+    split_dict_regis = (
+        dfk_upper.groupby(koppeltabel_header_regis, sort=False)[koppeltabel_header_regis].count().to_dict()
+    )
+    split_dict_other = (
+        dfk_upper.groupby(koppeltabel_header_other, sort=False)[koppeltabel_header_other].count().to_dict()
+    )
 
     layer_model_regis_split = nlmod.dims.layers.split_layers_ds(
         ds=layer_model_regis.sel(layer=list(split_dict_regis.keys())),
@@ -183,10 +195,10 @@ def combine_two_layer_models(
     layer_names = layer_model_regis_split.layer.values
     layer_model_other_split = layer_model_other_split.assign_coords(layer=layer_names)
 
-    mask_model_other_split = mask_model_other.sel(layer=dfk[koppeltabel_header_other].values).assign_coords(
+    mask_model_other_split = mask_model_other.sel(layer=dfk_upper[koppeltabel_header_other].values).assign_coords(
         layer=layer_names
     )
-    transition_model_split = transition_model.sel(layer=dfk[koppeltabel_header_other].values).assign_coords(
+    transition_model_split = transition_model.sel(layer=dfk_upper[koppeltabel_header_other].values).assign_coords(
         layer=layer_names
     )
 
@@ -216,13 +228,12 @@ def combine_two_layer_models(
         _interpolate_ds(out, isvalid=cat != 3, ismissing=cat == 3, method="linear")
 
     elif transition_method == "keep_ratios":
-        raise NotImplementedError(
-            "The 'keep_ratios' transition method is not implemented yet. Please use 'linear' instead."
-        )
+        msg = "The 'keep_ratios' transition method is not implemented yet. Please use 'linear' instead."
+        raise NotImplementedError(msg)
         # cat.botm.isel(layer=slice(4), icell2d=slice(4))
         thick_split = nlmod.dims.layers.calculate_thickness(out)
-        thick_split.coords[koppeltabel_header_regis] = ("layer", dfk[koppeltabel_header_regis])
-        thick_split.coords[koppeltabel_header_other] = ("layer", dfk[koppeltabel_header_other])
+        thick_split.coords[koppeltabel_header_regis] = ("layer", dfk_upper[koppeltabel_header_regis])
+        thick_split.coords[koppeltabel_header_other] = ("layer", dfk_upper[koppeltabel_header_other])
 
         assert np.isnan(thick_split).sum() == 0, (
             "There are still nan values in the thickness of the layers. Otherwise, fill up with zeros or use skipna arguments in sum/cumsum calls."
@@ -232,14 +243,14 @@ def combine_two_layer_models(
         thick_split_sum_other = (
             thick_split.groupby(koppeltabel_header_regis)
             .sum()
-            .sel(**{koppeltabel_header_regis: dfk[koppeltabel_header_regis].values})
+            .sel(**{koppeltabel_header_regis: dfk_upper[koppeltabel_header_regis].values})
             .rename({koppeltabel_header_regis: "layer"})
             .assign_coords(layer=layer_names)
         )
         thick_split_sum_regis = (
             thick_split.groupby(koppeltabel_header_other)
             .sum()
-            .sel(**{koppeltabel_header_other: dfk[koppeltabel_header_other].values})
+            .sel(**{koppeltabel_header_other: dfk_upper[koppeltabel_header_other].values})
             .rename({koppeltabel_header_other: "layer"})
             .assign_coords(layer=layer_names)
         )
@@ -267,9 +278,40 @@ def combine_two_layer_models(
         cum_ratio = xr.where(cat.botm == 1, cum_ratio_regis, cum_ratio)
         cum_ratio = xr.where(cat.botm == 2, cum_ratio_other, cum_ratio)
     else:
-        raise ValueError(f"Unknown transition method: {transition_method}. Please use 'linear' or 'keep_ratios'.")
+        msg = f"Unknown transition method: {transition_method}. Please use 'linear' or 'keep_ratios'."
+        raise ValueError(msg)
 
-    return out, cat
+    """All the layers that are not being coupled are added to the out dataset"""
+    # Add the layers that are not being coupled
+    layer_model_regis_not_coupled = layer_model_regis.sel(layer=dfk_lower[koppeltabel_header_regis].values)
+    out_upper_lower = xr.concat(
+        [
+            out[["kh", "kv", "botm"]],
+            layer_model_regis_not_coupled[["kh", "kv", "botm"]].assign_coords(
+                layer=layer_model_regis_not_coupled.layer.values
+            ),
+        ],
+        dim="layer",
+    )
+    out_upper_lower["top"] = top
+
+    # The botm of the upper layermodel may cross the botm of the first layers opf the lower layermodel.
+    fix_missings_botms_and_min_layer_thickness(out_upper_lower)
+
+    cat_upper_lower = xr.concat(
+        [
+            cat[["kh", "kv", "botm"]],
+            xr.ones_like(layer_model_regis_not_coupled[["kh", "kv", "botm"]], dtype=int).assign_coords(
+                layer=layer_model_regis_not_coupled.layer.values
+            ),
+        ],
+        dim="layer",
+    )
+    if remove_nan_layers:
+        out_upper_lower = nlmod.dims.layers.remove_inactive_layers(out_upper_lower)
+        cat_upper_lower = cat_upper_lower.sel(layer=out_upper_lower.layer.values)
+
+    return out_upper_lower, cat_upper_lower
 
 
 def _interpolate_ds(ds, isvalid, ismissing, method="linear"):
@@ -298,7 +340,7 @@ def _interpolate_ds(ds, isvalid, ismissing, method="linear"):
           tessellate the input point set to N-D
           simplices, and interpolate linearly on each simplex.
     """
-    for k in ds.keys():
+    for k in ds:
         if "layer" not in ds[k].dims:
             continue
 
@@ -375,9 +417,7 @@ def _validate_inputs(
     koppeltabel_header_regis,
     koppeltabel_header_other,
 ):
-    """
-    Validate input datasets and parameters for combining layer models.
-    """
+    """Validate input datasets and parameters for combining layer models."""
     # Check model extents match
     assert layer_model_regis.attrs["extent"] == layer_model_other.attrs["extent"], (
         "Extent of layer models are not equal"
@@ -418,6 +458,15 @@ def _validate_inputs(
 
     assert all(np.issubdtype(dtype, bool) for dtype in transition_model.dtypes.values()), (
         "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
+    )
+
+    assert dfk[koppeltabel_header_regis].isin(layer_model_regis.layer.values).all(), (
+        f"All values in koppeltabel[{koppeltabel_header_regis}] should be present in layer_model_regis.layer"
+    )
+
+    other_layers = dfk[koppeltabel_header_other].dropna().unique()
+    assert np.isin(layer_model_other.layer.values, other_layers).all(), (
+        f"All values in koppeltabel[{koppeltabel_header_other}] should be present in layer_model_other.layer"
     )
 
     # No overlap between mask_model_other and transition_model
