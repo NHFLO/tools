@@ -53,7 +53,7 @@ class GeoConverter:
         x_column: str | None = None,
         y_column: str | None = None,
         wkt_column: str | None = None,
-        coordinate_precision: int = 0.01,
+        coordinate_precision: int = 2,
         overwrite_with_target_crs: bool = False,
     ) -> Path:
         """Convert a single file to GeoJSON format."""
@@ -107,7 +107,7 @@ class GeoConverter:
         if output_path is None:
             output_path = input_path.with_suffix(".geojson")
         output_path = Path(output_path)
-        gdf.to_file(output_path, driver="GeoJSON", coordinate_precision=str(coordinate_precision), write_bbox="no")
+        gdf.to_file(output_path, driver="GeoJSON", coordinate_precision=str(coordinate_precision), write_bbox="yes")
         return output_path
 
     def convert_folder(
