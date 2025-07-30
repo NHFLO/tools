@@ -274,7 +274,7 @@ def get_top_from_ahn(
     top = ds["ahn"].copy()
 
     if replace_surface_water_with_peil:
-        rws_ds = nlmod.read.rws.get_surface_water(
+        rws_ds = nlmod.read.rws.discretize_surface_water(
             ds, da_basename="rws_oppwater", cachedir=cachedir, cachename="rws_ds.nc"
         )
         fill_mask = np.logical_and(top.isnull(), np.isclose(rws_ds["rws_oppwater_area"], ds["area"]))
