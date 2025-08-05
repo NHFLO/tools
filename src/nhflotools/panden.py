@@ -1,3 +1,4 @@
+import logging
 import os
 
 import flopy
@@ -5,6 +6,7 @@ import geopandas as gpd
 import nlmod
 import numpy as np
 
+logger = logging.getLogger(__name__)
 
 def get_oppervlakte_pwn_shapes(data_path_panden):
     """Get oppervlakte shapes for PWN area.
@@ -50,6 +52,10 @@ def riv_from_oppervlakte_pwn(ds, gwf, data_path_panden):
     """
     panden_shp = get_oppervlakte_pwn_shapes(data_path_panden=data_path_panden)
     rivdata = nlmod.grid.gdf_to_grid(panden_shp, gwf)
+    if rivdata.empty:
+        logger.warning("No RIV data found within the provided extent.")
+        return None
+
     rivdata["cond"] = rivdata["area"] / rivdata["c"]
     agg = nlmod.grid.aggregate_vector_per_cell(
         rivdata,
