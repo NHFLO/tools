@@ -275,7 +275,7 @@ def get_top_from_ahn(
     top = ds["ahn"].copy()
 
     if replace_surface_water_with_peil:
-        gdf_surface_water = nlmod.read.rws.get_gdf_surface_water(ds, cachename="surface_water", cachedir=cachedir)
+        gdf_surface_water = nlmod.read.rws.get_gdf_surface_water(extent=ds.extent, cachename="surface_water", cachedir=cachedir)
         rws_ds = nlmod.read.rws.discretize_surface_water(
             ds, gdf=gdf_surface_water, da_basename="rws_oppwater", cachedir=cachedir, cachename="rws_ds.nc"
         )
