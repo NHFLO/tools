@@ -90,12 +90,6 @@ def get_pwn_aquitard_data(
             min_area_fraction=0.5,
         )
 
-        f, ax = nlmod.plot.get_map(ds.extent, base=1e4)
-        ax.set_aspect("equal", adjustable="box")
-        pc = nlmod.plot.data_array(data[f"{name}_mask"], ds=ds)
-        nlmod.plot.modelgrid(ds, ax=ax, lw=0.25, alpha=0.5, color="k")
-        gdf_mask.plot(ax=ax, facecolor="red", alpha=0.5, edgecolor="r")
-
         # Compute where the layer transitions to REGIS
         multipolygon = unary_union(gdf_mask.geometry)
         multipolygon_transition = multipolygon.buffer(transition_length).difference(multipolygon)
