@@ -78,7 +78,7 @@ def get_pwn_aquitard_data(
     data = {}
 
     for name in layer_names:
-        # Compute where the layer is _not_ present
+        # Compute where the layer __is__ present
         logger.info("Interpolating aquitard layer %s data and its transition zone", name)
         fp_mask = data_dir / "dikte_aquitard" / f"D{name}" / f"D{name}_mask_combined.geojson"
         gdf_mask = gpd.read_file(fp_mask)
@@ -112,13 +112,13 @@ def get_pwn_aquitard_data(
             verbose=verbose,
             enable_plotting=False,
         )
-        xq = ix.mfgrid.xcellcenters[~data[f"{name}_mask"]]
-        yq = ix.mfgrid.ycellcenters[~data[f"{name}_mask"]]
+        xq = ix.mfgrid.xcellcenters[data[f"{name}_mask"]]
+        yq = ix.mfgrid.ycellcenters[data[f"{name}_mask"]]
         kriging_result = ok.execute("points", xq, yq)
         data[f"D{name}_value"] = nlmod.util.get_da_from_da_ds(ds, dims=("icell2d",), data=0.0)
-        data[f"D{name}_value"][~data[f"{name}_mask"]] = kriging_result[0]
+        data[f"D{name}_value"][data[f"{name}_mask"]] = kriging_result[0]
         data[f"D{name}_value_unc"] = nlmod.util.get_da_from_da_ds(ds, dims=("icell2d",), data=np.nan)
-        data[f"D{name}_value_unc"][~data[f"{name}_mask"]] = kriging_result[1]
+        data[f"D{name}_value_unc"][data[f"{name}_mask"]] = kriging_result[1]
 
         # Interpolate top aquitard points using Kriging
         fp_pts = data_dir / "top_aquitard" / f"T{name}" / f"T{name}_interpolation_points.geojson"
@@ -133,9 +133,9 @@ def get_pwn_aquitard_data(
         )
         kriging_result = ok.execute("points", xq, yq)
         data[f"T{name}_value"] = nlmod.util.get_da_from_da_ds(ds, dims=("icell2d",), data=np.nan)
-        data[f"T{name}_value"][~data[f"{name}_mask"]] = kriging_result[0]
+        data[f"T{name}_value"][data[f"{name}_mask"]] = kriging_result[0]
         data[f"T{name}_value_unc"] = nlmod.util.get_da_from_da_ds(ds, dims=("icell2d",), data=np.nan)
-        data[f"T{name}_value_unc"][~data[f"{name}_mask"]] = kriging_result[1]
+        data[f"T{name}_value_unc"][data[f"{name}_mask"]] = kriging_result[1]
 
     return data
 

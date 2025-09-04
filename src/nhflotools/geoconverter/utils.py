@@ -114,11 +114,12 @@ def calculate_folder_bounds(folder_path: str | Path, rounding_interval: int = 10
 
 
 def read_tabular(
-    self,
     input_path: Path,
     x_column: str | None,
     y_column: str | None,
     wkt_column: str | None,
+    target_crs: str = "EPSG:28992",
+    **kwargs
 ) -> gpd.GeoDataFrame:
     """Read tabular data with geometry information.
 
@@ -134,6 +135,10 @@ def read_tabular(
         Column name with y-coordinate information.
     wkt_column : str, optional
         Column name with WKT geometry information.
+    target_crs : str, optional
+        Target coordinate reference system (default is "EPSG:28992").
+    **kwargs
+        Additional keyword arguments for reading the file.
 
     Returns
     -------
@@ -142,23 +147,23 @@ def read_tabular(
     """
     # Read the file based on its extension
     if input_path.suffix == ".csv":
-        df = pd.read_csv(input_path)
+        df = pd.read_csv(input_path, **kwargs)
     elif input_path.suffix in {".xlsx", ".xls"}:
-        df = pd.read_excel(input_path)
+        df = pd.read_excel(input_path, **kwargs)
     elif input_path.suffix == ".ods":
-        df = pd.read_excel(input_path, engine="odf")
+        df = pd.read_excel(input_path, engine="odf", **kwargs)
     else:
         msg = f"Unsupported file format: {input_path.suffix}"
         raise ValueError(msg)
 
     # Create geometry from coordinates or WKT
     if x_column and y_column:
-        geometry = gpd.points_from_xy(df[x_column], df[y_column], crs=self.target_crs)
+        geometry = gpd.points_from_xy(df[x_column], df[y_column], crs=target_crs)
         df.drop(columns=[x_column, y_column], inplace=True)
     elif wkt_column:
-        geometry = gpd.GeoSeries.from_wkt(df[wkt_column], crs=self.target_crs)
+        geometry = gpd.GeoSeries.from_wkt(df[wkt_column], crs=target_crs)
         df.drop(columns=[wkt_column], inplace=True)
     else:
         msg = "No geometry information provided for tabular data"
         raise ValueError(msg)
-    return gpd.GeoDataFrame(df, geometry=geometry, crs=self.target_crs)
+    return gpd.GeoDataFrame(df, geometry=geometry, crs=target_crs)

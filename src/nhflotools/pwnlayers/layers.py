@@ -241,6 +241,7 @@ def get_pwn_layer_model(
 
 def get_top_from_ahn(
     ds,
+    *,
     replace_surface_water_with_peil=True,
     replace_northsea_with_constant=None,
     method_elsewhere="nearest",
@@ -274,8 +275,9 @@ def get_top_from_ahn(
     top = ds["ahn"].copy()
 
     if replace_surface_water_with_peil:
-        rws_ds = nlmod.read.rws.get_surface_water(
-            ds, da_basename="rws_oppwater", cachedir=cachedir, cachename="rws_ds.nc"
+        gdf_surface_water = nlmod.read.rws.get_gdf_surface_water(extent=ds.extent, cachename="surface_water", cachedir=cachedir)
+        rws_ds = nlmod.read.rws.discretize_surface_water(
+            ds, gdf=gdf_surface_water, da_basename="rws_oppwater", cachedir=cachedir, cachename="rws_ds.nc"
         )
         fill_mask = np.logical_and(top.isnull(), np.isclose(rws_ds["rws_oppwater_area"], ds["area"]))
         top.values = xr.where(fill_mask, rws_ds["rws_oppwater_stage"], top)
