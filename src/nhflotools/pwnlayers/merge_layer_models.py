@@ -39,6 +39,15 @@ translate_triwaco_mensink_names_to_index = {
 }
 
 
+def plot_layer(da, ds, **kwargs):
+    ax = kwargs.pop("ax", None)
+    if ax is None:
+        _, ax = nlmod.plot.get_map(ds.extent, base=1e4)
+        ax.set_aspect("equal", adjustable="box")
+    pc = nlmod.plot.data_array(da, ds=ds, ax=ax, **kwargs)
+    return ax, pc
+
+
 def combine_two_layer_models(
     *,
     layer_model_regis,
@@ -188,12 +197,11 @@ def combine_two_layer_models(
         ds=layer_model_regis.sel(layer=list(split_dict_regis.keys())),
         split_dict=split_dict_regis,
     )
+    layer_names = layer_model_regis_split.layer.values
     layer_model_other_split = nlmod.dims.layers.split_layers_ds(
         ds=layer_model_other.sel(layer=list(split_dict_other.keys())),
         split_dict=split_dict_other,
-    )
-    layer_names = layer_model_regis_split.layer.values
-    layer_model_other_split = layer_model_other_split.assign_coords(layer=layer_names)
+    ).assign_coords(layer=layer_names)
 
     mask_model_other_split = mask_model_other.sel(layer=dfk_upper[koppeltabel_header_other].values).assign_coords(
         layer=layer_names
@@ -351,6 +359,8 @@ def _interpolate_ds(ds, isvalid, ismissing, method="linear"):
                 ismissing[k].sel(layer=layer),
                 method=method,
             )
+            if np.any(np.isnan(ds[k].sel(layer=layer).values)):
+                raise ValueError(f"NaN values found in layer {layer} of variable {k} after interpolation. Also extrapolate using 'nearest'.")
 
 
 def _interpolate_da(da, isvalid, ismissing, method="linear"):

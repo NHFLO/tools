@@ -201,12 +201,17 @@ def get_pwn_layer_model(
         fix_missings_botms_and_min_layer_thickness(layer_model_mensink_bergen_regis)
 
     # Remove inactive layers and set kh and kv of non-existing cells to default values
-    layer_model_mensink_bergen_regis["kh"] = layer_model_mensink_bergen_regis.kh.where(
-        layer_model_mensink_bergen_regis.kh != 0.0, np.nan
-    )
-    layer_model_mensink_bergen_regis["kv"] = layer_model_mensink_bergen_regis.kv.where(
-        layer_model_mensink_bergen_regis.kv != 0.0, np.nan
-    )
+    if np.any(np.isclose(layer_model_mensink_bergen_regis.kh, 0.0)):
+        # layer_model_mensink_bergen_regis["kh"] = layer_model_mensink_bergen_regis.kh.where(
+        #     layer_model_mensink_bergen_regis.kh != 0.0, np.nan
+        # )
+        raise ValueError("There shouldn't be any zeros for kh")
+    if np.any(np.isclose(layer_model_mensink_bergen_regis.kv, 0.0)):
+        # layer_model_mensink_bergen_regis["kv"] = layer_model_mensink_bergen_regis.kv.where(
+        #     layer_model_mensink_bergen_regis.kv != 0.0, np.nan
+        # )
+        raise ValueError("There shouldn't be any zeros for kv")
+
     layer_model_active = nlmod.layers.fill_nan_top_botm_kh_kv(
         layer_model_mensink_bergen_regis,
         anisotropy=5.0,
