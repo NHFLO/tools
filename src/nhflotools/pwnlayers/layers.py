@@ -119,6 +119,14 @@ def get_pwn_layer_model(
     if fix_min_layer_thickness:
         fix_missings_botms_and_min_layer_thickness(layer_model_regis)
 
+    # Get PWN layer models
+    ds_pwn_data = read_pwn_data2(
+        layer_model_regis,
+        datadir_mensink=data_path_mensink,
+        datadir_bergen=data_path_bergen,
+        length_transition=length_transition,
+        cachedir=cachedir,
+    )
     # Read the koppeltabel CSV file
     df_koppeltabel = pd.read_csv(fname_koppeltabel, skiprows=0, index_col=0)
     df_koppeltabel = df_koppeltabel[~df_koppeltabel["ASSUMPTION1"].isna()]
@@ -146,14 +154,6 @@ def get_pwn_layer_model(
         )
 
     else:
-        # Get PWN layer models
-        ds_pwn_data = read_pwn_data2(
-            layer_model_regis,
-            datadir_mensink=data_path_mensink,
-            datadir_bergen=data_path_bergen,
-            length_transition=length_transition,
-            cachedir=cachedir,
-        )
         layer_model_mensink, mask_model_mensink, transition_model_mensink = get_mensink_layer_model(
             ds_pwn_data=ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness
         )
