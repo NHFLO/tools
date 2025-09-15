@@ -19,12 +19,13 @@ logger = logging.getLogger(__name__)
 # TODO: mask and transition in read_kv_area
 
 
+@cache.cache_netcdf(coords_3d=True, attrs=[])
 def read_pwn_data2(
     ds=None,
     datadir_mensink=None,
     datadir_bergen=None,
     length_transition=100.0,
-    cachedir=None,
+    cachedir_sub=None,
     parallel=True,
 ):
     """Read PWN data from Mensink and Bergen.
@@ -39,7 +40,7 @@ def read_pwn_data2(
         directory with modeldata of bergen. The default is None.
     length_transition : float, optional
         length of transition zone, by default 100.
-    cachedir : str, optional
+    cachedir_sub : str, optional
         cachedir used to cache files using the decorator
         nlmod.cache.cache_netcdf. The default is None.
     parallel : bool, optional
@@ -79,7 +80,7 @@ def read_pwn_data2(
                     ds,
                     datadir_bergen,
                     length_transition=length_transition,
-                    cachedir=cachedir,
+                    cachedir=cachedir_sub,
                     cachename=f"triw_{func.__name__}",
                     ix=ix,
                 )
@@ -100,7 +101,7 @@ def read_pwn_data2(
                     ds,
                     datadir_mensink,
                     length_transition=length_transition,
-                    cachedir=cachedir,
+                    cachedir=cachedir_sub,
                     cachename=f"triw_{func.__name__}",
                     ix=ix,
                 )
@@ -127,7 +128,7 @@ def read_pwn_data2(
                     ds,
                     datadir_bergen,
                     length_transition=length_transition,
-                    cachedir=cachedir,
+                    cachedir=cachedir_sub,
                     cachename=f"triw_{func.__name__}",
                     ix=ix,
                 )
@@ -149,7 +150,7 @@ def read_pwn_data2(
                     ds,
                     datadir_mensink,
                     length_transition=length_transition,
-                    cachedir=cachedir,
+                    cachedir=cachedir_sub,
                     cachename=f"triw_{func.__name__}",
                     ix=ix,
                 )

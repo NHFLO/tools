@@ -136,7 +136,8 @@ def combine_two_layer_models(
     Returns
     -------
     out : xarray Dataset
-        Dataset containing the combined layer model with kh, kv, and botm.
+        Dataset containing the combined layer model with kh, kv, and botm. Attributes from
+        layer_model_regis are copied to the output dataset.
     cat : xarray Dataset
         Dataset containing the category of the layers. The values are:
         1: REGISII layer
@@ -319,6 +320,8 @@ def combine_two_layer_models(
         out_upper_lower = nlmod.dims.layers.remove_inactive_layers(out_upper_lower)
         cat_upper_lower = cat_upper_lower.sel(layer=out_upper_lower.layer.values)
 
+    out_upper_lower.attrs = layer_model_regis.attrs
+
     return out_upper_lower, cat_upper_lower
 
 
@@ -359,8 +362,13 @@ def _interpolate_ds(ds, isvalid, ismissing, method="linear"):
                 ismissing[k].sel(layer=layer),
                 method=method,
             )
-            if np.any(np.isnan(ds[k].sel(layer=layer).values)):
-                raise ValueError(f"NaN values found in layer {layer} of variable {k} after interpolation. Also extrapolate using 'nearest'.")
+            if np.any(np.isnan(ds[k].sel(layer=layer, icell2d=ismissing[k].sel(layer=layer)).values)):
+                _interpolate_da(
+                    ds[k].sel(layer=layer),
+                    isvalid[k].sel(layer=layer),
+                    ismissing[k].sel(layer=layer),
+                    method="nearest",
+                )
 
 
 def _interpolate_da(da, isvalid, ismissing, method="linear"):
@@ -470,12 +478,17 @@ def _validate_inputs(
         "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
     )
 
-    assert dfk[koppeltabel_header_regis].isin(layer_model_regis.layer.values).all(), (
+    # If REGIS was already merged with another model, the layer names can contain underscores.
+    basenames_regis = {layer.split("_")[0] for layer in layer_model_regis.layer.values}
+
+    # Check koppeltabel values are present in layer models
+    assert set(dfk[koppeltabel_header_regis]) == basenames_regis, (
         f"All values in koppeltabel[{koppeltabel_header_regis}] should be present in layer_model_regis.layer"
     )
 
-    other_layers = dfk[koppeltabel_header_other].dropna().unique()
-    assert np.isin(layer_model_other.layer.values, other_layers).all(), (
+    basenames_other = {layer.split("_")[0] for layer in layer_model_other.layer.values}
+    # Check koppeltabel values are present in layer models
+    assert basenames_other.issubset(set(dfk[koppeltabel_header_other])), (
         f"All values in koppeltabel[{koppeltabel_header_other}] should be present in layer_model_other.layer"
     )
 
