@@ -125,11 +125,12 @@ def get_pwn_layer_model(
         datadir_mensink=data_path_mensink,
         datadir_bergen=data_path_bergen,
         length_transition=length_transition,
+        cachedir_sub=cachedir,
         cachedir=cachedir,
+        cachename="read_pwn_data2",
     )
     # Read the koppeltabel CSV file
     df_koppeltabel = pd.read_csv(fname_koppeltabel, skiprows=0, index_col=0)
-    df_koppeltabel = df_koppeltabel[~df_koppeltabel["ASSUMPTION1"].isna()]
 
     if data_path_2024 is not None:
         ds_pwn_data_2024 = get_pwn_aquitard_data(
@@ -154,59 +155,92 @@ def get_pwn_layer_model(
         )
 
     else:
-        layer_model_mensink, mask_model_mensink, transition_model_mensink = get_mensink_layer_model(
-            ds_pwn_data=ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness
-        )
-        layer_model_bergen, mask_model_bergen, transition_model_bergen = get_bergen_layer_model(
-            ds_pwn_data=ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness
-        )
-        thick_layer_model_mensink = nlmod.dims.layers.calculate_thickness(layer_model_mensink)
-        thick_layer_model_bergen = nlmod.dims.layers.calculate_thickness(layer_model_bergen)
         thick_layer_model_regis = nlmod.dims.layers.calculate_thickness(layer_model_regis)
-
-        assert ~(thick_layer_model_mensink < 0.0).any(), "Mensink thickness of layers should be positive"
-        assert ~(thick_layer_model_bergen < 0.0).any(), "Bergen thickness of layers should be positive"
         assert ~(thick_layer_model_regis < 0.0).any(), "Regis thickness of layers should be positive"
 
-        # Combine PWN layer model with REGIS layer model
-        layer_model_mensink_regis, _ = combine_two_layer_models(
-            layer_model_regis=layer_model_regis,
-            layer_model_other=layer_model_mensink,
-            mask_model_other=mask_model_mensink,
-            transition_model=transition_model_mensink,
-            top=top,
-            df_koppeltabel=df_koppeltabel,
-            koppeltabel_header_regis="Regis II v2.2",
-            koppeltabel_header_other="ASSUMPTION1",
-        )
-        if fix_min_layer_thickness:
-            fix_missings_botms_and_min_layer_thickness(layer_model_mensink_regis)
+        if data_path_mensink:
+            layer_model_mensink, mask_model_mensink, transition_model_mensink = get_mensink_layer_model(
+                ds_pwn_data=ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness
+            )
+            thick_layer_model_mensink = nlmod.dims.layers.calculate_thickness(layer_model_mensink)
+            assert ~(thick_layer_model_mensink < 0.0).any(), "Mensink thickness of layers should be positive"
 
-        # Combine PWN layer model with Bergen layer model and REGIS layer model
-        (
-            layer_model_mensink_bergen_regis,
-            _,
-        ) = combine_two_layer_models(
-            layer_model_regis=layer_model_mensink_regis,
-            layer_model_other=layer_model_bergen,
-            mask_model_other=mask_model_bergen,
-            transition_model=transition_model_bergen,
-            top=top,
-            df_koppeltabel=df_koppeltabel,
-            koppeltabel_header_regis="Regis II v2.2",
-            koppeltabel_header_other="ASSUMPTION1",
-        )
+        if data_path_bergen:
+            layer_model_bergen, mask_model_bergen, transition_model_bergen = get_bergen_layer_model(
+                ds_pwn_data=ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness
+            )
+            thick_layer_model_bergen = nlmod.dims.layers.calculate_thickness(layer_model_bergen)
+            assert ~(thick_layer_model_bergen < 0.0).any(), "Bergen thickness of layers should be positive"
+
+        if data_path_mensink and data_path_bergen:
+            # Combine PWN layer model with REGIS layer model
+            layer_model_mensink_regis, _ = combine_two_layer_models(
+                layer_model_regis=layer_model_regis,
+                layer_model_other=layer_model_mensink,
+                mask_model_other=mask_model_mensink,
+                transition_model=transition_model_mensink,
+                top=top,
+                df_koppeltabel=df_koppeltabel,
+                koppeltabel_header_regis="Regis II v2.2",
+                koppeltabel_header_other="ASSUMPTION1",
+                remove_nan_layers=False,
+            )
+            if fix_min_layer_thickness:
+                fix_missings_botms_and_min_layer_thickness(layer_model_mensink_regis)
+
+            # Combine PWN layer model with Bergen layer model and REGIS layer model
+            (
+                layer_model_mensink_bergen_regis,
+                _,
+            ) = combine_two_layer_models(
+                layer_model_regis=layer_model_mensink_regis,
+                layer_model_other=layer_model_bergen,
+                mask_model_other=mask_model_bergen,
+                transition_model=transition_model_bergen,
+                top=top,
+                df_koppeltabel=df_koppeltabel,
+                koppeltabel_header_regis="Regis II v2.2",
+                koppeltabel_header_other="ASSUMPTION1",
+            )
+
+        elif data_path_mensink:
+            layer_model_mensink_bergen_regis, _ = combine_two_layer_models(
+                layer_model_regis=layer_model_regis,
+                layer_model_other=layer_model_mensink,
+                mask_model_other=mask_model_mensink,
+                transition_model=transition_model_mensink,
+                top=top,
+                df_koppeltabel=df_koppeltabel,
+                koppeltabel_header_regis="Regis II v2.2",
+                koppeltabel_header_other="ASSUMPTION1",
+            )
+        elif data_path_bergen:
+            layer_model_mensink_bergen_regis, _ = combine_two_layer_models(
+                layer_model_regis=layer_model_regis,
+                layer_model_other=layer_model_bergen,
+                mask_model_other=mask_model_bergen,
+                transition_model=transition_model_bergen,
+                top=top,
+                df_koppeltabel=df_koppeltabel,
+                koppeltabel_header_regis="Regis II v2.2",
+                koppeltabel_header_other="ASSUMPTION1",
+            )
 
     if fix_min_layer_thickness:
         fix_missings_botms_and_min_layer_thickness(layer_model_mensink_bergen_regis)
 
-    # Remove inactive layers and set kh and kv of non-existing cells to default values
-    layer_model_mensink_bergen_regis["kh"] = layer_model_mensink_bergen_regis.kh.where(
-        layer_model_mensink_bergen_regis.kh != 0.0, np.nan
-    )
-    layer_model_mensink_bergen_regis["kv"] = layer_model_mensink_bergen_regis.kv.where(
-        layer_model_mensink_bergen_regis.kv != 0.0, np.nan
-    )
+    m = np.isclose(layer_model_mensink_bergen_regis.kh, 0.0)
+    if np.any(m):
+        msg = f"Setting {m.sum().item()} values of kh that are exactly zero to 1e-6m/d."
+        logger.warning(msg)
+        layer_model_mensink_bergen_regis["kh"] = layer_model_mensink_bergen_regis.kh.where(~m, 1e-6)
+
+    m = np.isclose(layer_model_mensink_bergen_regis.kv, 0.0)
+    if np.any(m):
+        msg = f"Setting {m.sum().item()} values of kv that are exactly zero to 1e-6m/d."
+        logger.warning(msg)
+        layer_model_mensink_bergen_regis["kv"] = layer_model_mensink_bergen_regis.kv.where(~m, 1e-6)
+
     layer_model_active = nlmod.layers.fill_nan_top_botm_kh_kv(
         layer_model_mensink_bergen_regis,
         anisotropy=5.0,

@@ -39,6 +39,15 @@ translate_triwaco_mensink_names_to_index = {
 }
 
 
+def plot_layer(da, ds, **kwargs):
+    ax = kwargs.pop("ax", None)
+    if ax is None:
+        _, ax = nlmod.plot.get_map(ds.extent, base=1e4)
+        ax.set_aspect("equal", adjustable="box")
+    pc = nlmod.plot.data_array(da, ds=ds, ax=ax, **kwargs)
+    return ax, pc
+
+
 def combine_two_layer_models(
     *,
     layer_model_regis,
@@ -127,7 +136,8 @@ def combine_two_layer_models(
     Returns
     -------
     out : xarray Dataset
-        Dataset containing the combined layer model with kh, kv, and botm.
+        Dataset containing the combined layer model with kh, kv, and botm. Attributes from
+        layer_model_regis are copied to the output dataset.
     cat : xarray Dataset
         Dataset containing the category of the layers. The values are:
         1: REGISII layer
@@ -188,12 +198,11 @@ def combine_two_layer_models(
         ds=layer_model_regis.sel(layer=list(split_dict_regis.keys())),
         split_dict=split_dict_regis,
     )
+    layer_names = layer_model_regis_split.layer.values
     layer_model_other_split = nlmod.dims.layers.split_layers_ds(
         ds=layer_model_other.sel(layer=list(split_dict_other.keys())),
         split_dict=split_dict_other,
-    )
-    layer_names = layer_model_regis_split.layer.values
-    layer_model_other_split = layer_model_other_split.assign_coords(layer=layer_names)
+    ).assign_coords(layer=layer_names)
 
     mask_model_other_split = mask_model_other.sel(layer=dfk_upper[koppeltabel_header_other].values).assign_coords(
         layer=layer_names
@@ -311,6 +320,8 @@ def combine_two_layer_models(
         out_upper_lower = nlmod.dims.layers.remove_inactive_layers(out_upper_lower)
         cat_upper_lower = cat_upper_lower.sel(layer=out_upper_lower.layer.values)
 
+    out_upper_lower.attrs = layer_model_regis.attrs
+
     return out_upper_lower, cat_upper_lower
 
 
@@ -351,6 +362,13 @@ def _interpolate_ds(ds, isvalid, ismissing, method="linear"):
                 ismissing[k].sel(layer=layer),
                 method=method,
             )
+            if np.any(np.isnan(ds[k].sel(layer=layer, icell2d=ismissing[k].sel(layer=layer)).values)):
+                _interpolate_da(
+                    ds[k].sel(layer=layer),
+                    isvalid[k].sel(layer=layer),
+                    ismissing[k].sel(layer=layer),
+                    method="nearest",
+                )
 
 
 def _interpolate_da(da, isvalid, ismissing, method="linear"):
@@ -460,12 +478,17 @@ def _validate_inputs(
         "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
     )
 
-    assert dfk[koppeltabel_header_regis].isin(layer_model_regis.layer.values).all(), (
+    # If REGIS was already merged with another model, the layer names can contain underscores.
+    basenames_regis = {layer.split("_")[0] for layer in layer_model_regis.layer.values}
+
+    # Check koppeltabel values are present in layer models
+    assert set(dfk[koppeltabel_header_regis]) == basenames_regis, (
         f"All values in koppeltabel[{koppeltabel_header_regis}] should be present in layer_model_regis.layer"
     )
 
-    other_layers = dfk[koppeltabel_header_other].dropna().unique()
-    assert np.isin(layer_model_other.layer.values, other_layers).all(), (
+    basenames_other = {layer.split("_")[0] for layer in layer_model_other.layer.values}
+    # Check koppeltabel values are present in layer models
+    assert basenames_other.issubset(set(dfk[koppeltabel_header_other])), (
         f"All values in koppeltabel[{koppeltabel_header_other}] should be present in layer_model_other.layer"
     )
 

@@ -15,6 +15,7 @@ from flopy.utils.gridintersect import GridIntersect
 from nlmod.dims.grid import gdf_to_bool_da, modelgrid_from_ds
 from packaging import version
 from shapely.ops import unary_union
+from scipy.interpolate import griddata
 
 from nhflotools.pwnlayers.utils import fix_missings_botms_and_min_layer_thickness
 
@@ -104,38 +105,32 @@ def get_pwn_aquitard_data(
         # Interpolate thickness points using Kriging
         fp_pts = data_dir / "dikte_aquitard" / f"D{name}" / f"D{name}_interpolation_points.geojson"
         gdf_pts = gpd.read_file(fp_pts)
-        ok = pykrige.ok.OrdinaryKriging(
-            gdf_pts.geometry.x.values,
-            gdf_pts.geometry.y.values,
-            gdf_pts.value.values,
-            variogram_model="linear",
-            verbose=verbose,
-            enable_plotting=False,
-        )
-        xq = ix.mfgrid.xcellcenters[data[f"{name}_mask"]]
-        yq = ix.mfgrid.ycellcenters[data[f"{name}_mask"]]
-        kriging_result = ok.execute("points", xq, yq)
-        data[f"D{name}_value"] = nlmod.util.get_da_from_da_ds(ds, dims=("icell2d",), data=0.0)
-        data[f"D{name}_value"][data[f"{name}_mask"]] = kriging_result[0]
-        data[f"D{name}_value_unc"] = nlmod.util.get_da_from_da_ds(ds, dims=("icell2d",), data=np.nan)
-        data[f"D{name}_value_unc"][data[f"{name}_mask"]] = kriging_result[1]
+
+        points_interp_in = np.column_stack((gdf_pts.geometry.x.values, gdf_pts.geometry.y.values))
+        points_interp_out = np.column_stack((ds.x[data[f"{name}_mask"]], ds.y[data[f"{name}_mask"]]))
+        values = griddata(points_interp_in, gdf_pts.value.values, points_interp_out, method="linear")
+        isextrap = np.isnan(values)
+        points_extrap_in = np.concatenate((points_interp_in, points_interp_out[~isextrap]))
+        points_extrap_in_values = np.concatenate((gdf_pts.value.values, values[~isextrap]))
+        points_extrap_out = points_interp_out[isextrap]
+        values[isextrap] = griddata(points_extrap_in, points_extrap_in_values, points_extrap_out, method="nearest")
+        data[f"D{name}_value"] = nlmod.util.get_da_from_da_ds(ds, dims=("icell2d",), data=np.nan)
+        data[f"D{name}_value"][data[f"{name}_mask"]] = values
 
         # Interpolate top aquitard points using Kriging
         fp_pts = data_dir / "top_aquitard" / f"T{name}" / f"T{name}_interpolation_points.geojson"
         gdf_pts = gpd.read_file(fp_pts)
-        ok = pykrige.ok.OrdinaryKriging(
-            gdf_pts.geometry.x.values,
-            gdf_pts.geometry.y.values,
-            gdf_pts.value.values,
-            variogram_model="linear",
-            verbose=verbose,
-            enable_plotting=False,
-        )
-        kriging_result = ok.execute("points", xq, yq)
+
+        points_interp_in = np.column_stack((gdf_pts.geometry.x.values, gdf_pts.geometry.y.values))
+        points_interp_out = np.column_stack((ds.x[data[f"{name}_mask"]], ds.y[data[f"{name}_mask"]]))
+        values = griddata(points_interp_in, gdf_pts.value.values, points_interp_out, method="linear")
+        isextrap = np.isnan(values)
+        points_extrap_in = np.concatenate((points_interp_in, points_interp_out[~isextrap]))
+        points_extrap_in_values = np.concatenate((gdf_pts.value.values, values[~isextrap]))
+        points_extrap_out = points_interp_out[isextrap]
+        values[isextrap] = griddata(points_extrap_in, points_extrap_in_values, points_extrap_out, method="nearest")
         data[f"T{name}_value"] = nlmod.util.get_da_from_da_ds(ds, dims=("icell2d",), data=np.nan)
-        data[f"T{name}_value"][data[f"{name}_mask"]] = kriging_result[0]
-        data[f"T{name}_value_unc"] = nlmod.util.get_da_from_da_ds(ds, dims=("icell2d",), data=np.nan)
-        data[f"T{name}_value_unc"][data[f"{name}_mask"]] = kriging_result[1]
+        data[f"T{name}_value"][data[f"{name}_mask"]] = values
 
     return data
 
