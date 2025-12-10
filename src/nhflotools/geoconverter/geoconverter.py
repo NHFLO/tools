@@ -96,8 +96,8 @@ class GeoConverter:
         gdf = gdf[~gdf.geometry.is_empty]
         gdf = gdf.dropna(subset=["geometry"])
         geometry = gdf.make_valid()
-        geometry = geometry.set_precision(coordinate_precision, mode="valid_output")
-        geometry = geometry.simplify(tolerance=coordinate_precision, preserve_topology=True)
+        geometry = geometry.set_precision(10**-coordinate_precision, mode="valid_output")
+        geometry = geometry.simplify(tolerance=10**-coordinate_precision, preserve_topology=True)
         gdf.set_geometry(geometry, inplace=True)
 
         # Optimize DataFrame
@@ -107,7 +107,7 @@ class GeoConverter:
         if output_path is None:
             output_path = input_path.with_suffix(".geojson")
         output_path = Path(output_path)
-        gdf.to_file(output_path, driver="GeoJSON", coordinate_precision=str(coordinate_precision), write_bbox="yes")
+        gdf.to_file(output_path, driver="GeoJSON", coordinate_precision=coordinate_precision + 1, write_bbox="yes")
         return output_path
 
     def convert_folder(
