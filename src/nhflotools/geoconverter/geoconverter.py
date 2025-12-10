@@ -54,7 +54,7 @@ class GeoConverter:
         y_column: str | None = None,
         wkt_column: str | None = None,
         coordinate_precision: int = 2,
-        overwrite_with_target_crs: bool = False,
+        overwrite_with_target_crs: bool = True,
     ) -> Path:
         """Convert a single file to GeoJSON format."""
         if gdf is None == input_path is None:
@@ -116,7 +116,7 @@ class GeoConverter:
         input_folder: str | Path,
         output_folder: str | Path | None = None,
         coordinate_precision: int = 2,
-        overwrite_with_target_crs: bool = False,
+        overwrite_with_target_crs: bool = True,
     ) -> dict[str, list[Path]]:
         """
         Convert all supported files in a folder structure to GeoJSON format and copy all other files to maintain complete folder structure.
