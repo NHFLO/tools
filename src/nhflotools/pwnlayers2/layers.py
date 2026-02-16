@@ -8,15 +8,18 @@ import geopandas as gpd
 import nlmod
 import numpy as np
 import pandas as pd
-import pykrige.ok
 import xarray as xr
 from flopy.discretization.vertexgrid import VertexGrid
 from flopy.utils.gridintersect import GridIntersect
+from nlmod import cache
 from nlmod.dims.grid import gdf_to_bool_da, modelgrid_from_ds
 from packaging import version
-from shapely.ops import unary_union
 from scipy.interpolate import griddata
+from shapely.ops import unary_union
 
+from nhflotools.pwnlayers.io import read_pwn_data2
+from nhflotools.pwnlayers.layers import get_bergen_kh, get_bergen_kv
+from nhflotools.pwnlayers.merge_layer_models import combine_two_layer_models
 from nhflotools.pwnlayers.utils import fix_missings_botms_and_min_layer_thickness
 
 logger = logging.getLogger(__name__)
@@ -28,6 +31,270 @@ layer_names = pd.Index(
 if version.parse(metadata.version("nlmod")) < version.parse("0.9.1.dev0"):
     msg = "nlmod version 0.9.1.dev0 or higher is required"
     raise ImportError(msg)
+
+
+
+
+logger = logging.getLogger(__name__)
+
+translate_triwaco_bergen_names_to_index = {
+    "W11": 0,
+    "S11": 1,
+    "W12": 2,
+    "S12": 3,
+    "W13": 4,
+    "S13": 5,
+    "W21": 6,
+    "S21": 7,
+    "W22": 8,
+    "S22": 9,
+}
+translate_triwaco_mensink_names_to_index = {
+    "W11": 0,
+    "S11": 1,
+    "W12": 2,
+    "S12": 3,
+    "W13": 4,
+    "S13": 5,
+    "W21": 6,
+    "S21": 7,
+    "W22": 8,
+    "S22": 9,
+    "W31": 10,
+    "S31": 11,
+    "W32": 12,
+    "S32": 13,
+}
+
+
+@cache.cache_netcdf(coords_3d=True, attrs_ds=True, datavars=["kh", "kv", "botm", "top"], attrs=[])
+def get_pwn_layer_model(
+    ds_regis=None,
+    data_path_mensink=None,
+    data_path_bergen=None,
+    data_path_2024=None,
+    fname_koppeltabel=None,
+    top=None,
+    length_transition=100.0,
+    fix_min_layer_thickness=True,
+):
+    """
+    Merge PWN layer model with ds_regis.
+
+    The PWN layer model is merged with the REGISII layer model. The values of the PWN layer model are used where the layer_model_pwn is not nan.
+
+    The values of the REGISII layer model are used where the layer_model_pwn is nan and transition_model_pwn is False. The remaining values are where the transition_model_pwn is True. Those values are linearly interpolated from the REGISII layer model to the PWN layer model.
+
+    The following order should be maintained in you modelscript:
+    - Get REGIS ds using nlmod.read.regis.get_combined_layer_models() and nlmod.to_model_ds()
+    - Refine grid with surface water polygons and areas of interest with nlmod.grid.refine()
+    - Get AHN with nlmod.read.ahn.get_ahn4() and resample to model grid with nlmod.dims.resample.structured_da_to_ds()
+    - Get PWN layer model with nlmod.read.pwn.get_pwn_layer_model()
+
+    Parameters
+    ----------
+    ds_regis : xarray Dataset
+        The dataset to merge the PWN layer model with. This dataset should contain the variables 'kh', 'kv', 'botm'. And 'top' if 'replace_top_with_ahn_key' is None.
+        Produced by nlmod.read.regis.get_combined_layer_models(), nlmod.to_model_ds(), nlmod.grid.refine().
+    data_path_mensink : str
+        The path to the Mensink data directory.
+    data_path_bergen : str
+        The path to the Bergen data directory.
+    data_path_2024 : str
+        The path to the 2024 data directory. In 2024, work is done to improve the position of the aquitards.
+    fname_koppeltabel : str
+        The filename of the koppeltabel (translation table) CSV file.
+    top : xarray DataArray, optional
+        The top of the model grid. The default is None in which case the top of REGIS is used.
+    length_transition : float, optional
+        The length of the transition zone between layer_model_regis and layer_model_other in meters. The default is 100.
+    fix_min_layer_thickness : bool, optional
+        Fix the minimum layer thickness. The default is True.
+
+    Returns
+    -------
+    ds : xarray Dataset
+        The merged dataset.
+
+    TODO: Reverse order coupling Mensink-REGIS and Bergen-REGIS
+    """
+    cachedir = None  # Cache not needed for underlying functions
+
+    if (ds_regis.layer != nlmod.read.regis.get_layer_names()).any():
+        msg = "All REGIS layers should be present in `ds_regis`. Use `get_regis(.., remove_nan_layers=False)`."
+        raise ValueError(msg)
+
+    layer_model_regis = ds_regis[["botm", "kh", "kv", "xv", "yv", "icvert"]]
+    layer_model_regis = layer_model_regis.sel(layer=layer_model_regis.layer != "mv")
+    layer_model_regis.attrs = {
+        "extent": ds_regis.attrs["extent"],
+        "gridtype": ds_regis.attrs["gridtype"],
+    }
+
+    # Use AHN as top. Top of layer_model_regis is used in layer_model_mensink and bergen.
+    logger.info("Using top from input")
+    if top.isnull().any():
+        msg = "Variable top should not contain nan values"
+        raise ValueError(msg)
+    layer_model_regis["top"] = top
+
+    if fix_min_layer_thickness:
+        layer_model_regis["botm"] = fix_missings_botms_and_min_layer_thickness(top=top, botm=layer_model_regis["botm"])
+
+    # Read the koppeltabel CSV file
+    df_koppeltabel = pd.read_csv(fname_koppeltabel, skiprows=0, index_col=0)
+
+    # Get PWN layer models
+    ds_pwn_data = read_pwn_data2(
+        layer_model_regis,
+        datadir_mensink=data_path_mensink,
+        datadir_bergen=data_path_bergen,
+        length_transition=length_transition,
+        cachedir_sub=cachedir,
+        cachedir=cachedir,
+        cachename="read_pwn_data2",
+    )
+
+    ds_pwn_data.update(get_pwn_aquitard_data(
+        ds=ds_regis, data_dir=data_path_2024, ix=None, transition_length=length_transition
+    ))
+    ds_pwn_data["top"] = top
+    # layer_model_nhd, mask_model_nhd, transition_model_nhd = get_mensink_layer_model2(
+    #     ds_pwn_data=ds_pwn_data, ds_pwn_data_2024=ds_pwn_data_2024, fix_min_layer_thickness=fix_min_layer_thickness
+    # )
+    get_layer_model(ds_pwn_data)
+    thick_layer_model_nhd = nlmod.dims.layers.calculate_thickness(layer_model_nhd)
+    assert ~(thick_layer_model_nhd < 0.0).any(), "NHD thickness of layers should be positive"
+
+    # Combine PWN layer model with REGIS layer model
+    layer_model_mensink_bergen_regis, cat = combine_two_layer_models(
+        layer_model_regis=layer_model_regis,
+        layer_model_other=layer_model_nhd,
+        mask_model_other=mask_model_nhd,
+        transition_model=transition_model_nhd,
+        top=top,
+        df_koppeltabel=df_koppeltabel,
+        koppeltabel_header_regis="Regis II v2.2",
+        koppeltabel_header_other="ASSUMPTION1",
+    )
+
+    # else:
+    #     thick_layer_model_regis = nlmod.dims.layers.calculate_thickness(layer_model_regis)
+    #     assert ~(thick_layer_model_regis < 0.0).any(), "Regis thickness of layers should be positive"
+
+    #     if data_path_mensink:
+    #         layer_model_mensink, mask_model_mensink, transition_model_mensink = get_mensink_layer_model(
+    #             ds_pwn_data=ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness
+    #         )
+    #         thick_layer_model_mensink = nlmod.dims.layers.calculate_thickness(layer_model_mensink)
+    #         assert ~(thick_layer_model_mensink < 0.0).any(), "Mensink thickness of layers should be positive"
+
+    #     if data_path_bergen:
+    #         layer_model_bergen, mask_model_bergen, transition_model_bergen = get_bergen_layer_model(
+    #             ds_pwn_data=ds_pwn_data, fix_min_layer_thickness=fix_min_layer_thickness
+    #         )
+    #         thick_layer_model_bergen = nlmod.dims.layers.calculate_thickness(layer_model_bergen)
+    #         assert ~(thick_layer_model_bergen < 0.0).any(), "Bergen thickness of layers should be positive"
+
+    #     if data_path_mensink and data_path_bergen:
+    #         # Combine PWN layer model with REGIS layer model
+            # layer_model_mensink_regis, _ = combine_two_layer_models(
+            #     layer_model_regis=layer_model_regis,
+            #     layer_model_other=layer_model_mensink,
+            #     mask_model_other=mask_model_mensink,
+            #     transition_model=transition_model_mensink,
+            #     top=top,
+            #     df_koppeltabel=df_koppeltabel,
+            #     koppeltabel_header_regis="Regis II v2.2",
+            #     koppeltabel_header_other="ASSUMPTION1",
+            #     remove_nan_layers=False,
+            # )
+    #         if fix_min_layer_thickness:
+    #             fix_missings_botms_and_min_layer_thickness(layer_model_mensink_regis)
+
+    #         # Combine PWN layer model with Bergen layer model and REGIS layer model
+    #         (
+    #             layer_model_mensink_bergen_regis,
+    #             _,
+    #         ) = combine_two_layer_models(
+    #             layer_model_regis=layer_model_mensink_regis,
+    #             layer_model_other=layer_model_bergen,
+    #             mask_model_other=mask_model_bergen,
+    #             transition_model=transition_model_bergen,
+    #             top=top,
+    #             df_koppeltabel=df_koppeltabel,
+    #             koppeltabel_header_regis="Regis II v2.2",
+    #             koppeltabel_header_other="ASSUMPTION1",
+    #         )
+
+    #     elif data_path_mensink:
+    #         layer_model_mensink_bergen_regis, _ = combine_two_layer_models(
+    #             layer_model_regis=layer_model_regis,
+    #             layer_model_other=layer_model_mensink,
+    #             mask_model_other=mask_model_mensink,
+    #             transition_model=transition_model_mensink,
+    #             top=top,
+    #             df_koppeltabel=df_koppeltabel,
+    #             koppeltabel_header_regis="Regis II v2.2",
+    #             koppeltabel_header_other="ASSUMPTION1",
+    #         )
+    #     elif data_path_bergen:
+    #         layer_model_mensink_bergen_regis, _ = combine_two_layer_models(
+    #             layer_model_regis=layer_model_regis,
+    #             layer_model_other=layer_model_bergen,
+    #             mask_model_other=mask_model_bergen,
+    #             transition_model=transition_model_bergen,
+    #             top=top,
+    #             df_koppeltabel=df_koppeltabel,
+    #             koppeltabel_header_regis="Regis II v2.2",
+    #             koppeltabel_header_other="ASSUMPTION1",
+    #         )
+
+    if fix_min_layer_thickness:
+        fix_missings_botms_and_min_layer_thickness(layer_model_mensink_bergen_regis)
+
+    m = np.isclose(layer_model_mensink_bergen_regis.kh, 0.0)
+    if np.any(m):
+        msg = f"Setting {m.sum().item()} values of kh that are exactly zero to 1e-6m/d."
+        logger.warning(msg)
+        layer_model_mensink_bergen_regis["kh"] = layer_model_mensink_bergen_regis.kh.where(~m, 1e-6)
+
+    m = np.isclose(layer_model_mensink_bergen_regis.kv, 0.0)
+    if np.any(m):
+        msg = f"Setting {m.sum().item()} values of kv that are exactly zero to 1e-6m/d."
+        logger.warning(msg)
+        layer_model_mensink_bergen_regis["kv"] = layer_model_mensink_bergen_regis.kv.where(~m, 1e-6)
+
+    layer_model_active = nlmod.layers.fill_nan_top_botm_kh_kv(
+        layer_model_mensink_bergen_regis,
+        anisotropy=5.0,
+        fill_value_kh=5.0,
+        fill_value_kv=1.0,
+        remove_nan_layers=True,
+    )
+
+    # Get idomain based on layer thickness
+    idomain = nlmod.dims.layers.get_idomain(layer_model_active)
+
+    return xr.Dataset(
+        data_vars={
+            "kh": layer_model_active["kh"],
+            "kv": layer_model_active["kv"],
+            "botm": layer_model_active["botm"],
+            "top": layer_model_active["top"],
+            "area": ds_regis.get("area", nlmod.dims.get_area(ds_regis)),
+            "xv": ds_regis["xv"],
+            "yv": ds_regis["yv"],
+            "icvert": ds_regis["icvert"],
+            "idomain": idomain,
+        },
+        coords={
+            "x": layer_model_active.coords["x"],
+            "y": layer_model_active.coords["y"],
+            "layer": layer_model_active.coords["layer"],
+        },
+        attrs=ds_regis.attrs,
+    )
 
 
 def get_pwn_aquitard_data(
@@ -135,45 +402,39 @@ def get_pwn_aquitard_data(
     return data
 
 
-def get_mensink_layer_model(ds_pwn_data, ds_pwn_data_2024, fix_min_layer_thickness=True):
+def get_layer_model(ds_pwn_data_2024, fix_min_layer_thickness=True):
     layer_model_mensink = xr.Dataset(
         {
-            "top": ds_pwn_data["top"],
-            "botm": get_mensink_botm(ds_pwn_data, ds_pwn_data_2024, fix_min_layer_thickness=fix_min_layer_thickness),
-            "kh": get_mensink_kh(ds_pwn_data, ds_pwn_data_2024, fix_min_layer_thickness=fix_min_layer_thickness),
-            "kv": get_mensink_kv(ds_pwn_data, ds_pwn_data_2024, fix_min_layer_thickness=fix_min_layer_thickness),
+            "top": ds_pwn_data_2024["top"],
+            "botm": get_botm_values(ds_pwn_data_2024, fix_min_layer_thickness=fix_min_layer_thickness),
+            "kh": get_kh_values(ds_pwn_data_2024, fix_min_layer_thickness=fix_min_layer_thickness),
+            "kv": get_kv_values(ds_pwn_data_2024, fix_min_layer_thickness=fix_min_layer_thickness),
         },
         coords={"layer": layer_names},
         attrs={
-            "extent": ds_pwn_data.attrs["extent"],
-            "gridtype": ds_pwn_data.attrs["gridtype"],
+            "extent": ds_pwn_data_2024.attrs["extent"],
+            "gridtype": ds_pwn_data_2024.attrs["gridtype"],
         },
     )
-    mask = get_mensink_botm(
-        ds_pwn_data,
+    mask = get_botm_mask(
         ds_pwn_data_2024,
-        mask=True,
-        transition=False,
         fix_min_layer_thickness=fix_min_layer_thickness,
     )
     mask_model_mensink = xr.Dataset(
         {
-            "top": ds_pwn_data["top_mask"],
+            "top": ds_pwn_data_2024["top_mask"],
             "botm": mask,
             "kh": mask,
             "kv": mask,
         },
     )
-    transition = get_mensink_botm(
-        ds_pwn_data,
+    transition = get_botm_transition(
         ds_pwn_data_2024,
-        mask=False,
-        transition=True,
         fix_min_layer_thickness=fix_min_layer_thickness,
     )
     transition_model_mensink = xr.Dataset(
         {
-            "top": ds_pwn_data["top_transition"],
+            "top": ds_pwn_data_2024["top_transition"],
             "botm": transition,
             "kh": transition,
             "kv": transition,
@@ -196,7 +457,7 @@ def get_mensink_layer_model(ds_pwn_data, ds_pwn_data_2024, fix_min_layer_thickne
     )
 
 
-def get_mensink_thickness(data, ds_pwn_data_2024, mask=False, transition=False, fix_min_layer_thickness=True):
+def get_mensink_thickness(ds_pwn_data_2024, fix_min_layer_thickness=True):
     """
     Calculate the thickness of layers in a given dataset.
 
@@ -219,11 +480,6 @@ def get_mensink_thickness(data, ds_pwn_data_2024, mask=False, transition=False, 
     ----------
     data : xarray.Dataset or xarray.DataArray
         Input dataset containing the layer data.
-    mask : bool, optional
-        If True, returns a boolean mask indicating the valid thickness values.
-        If False, returns the thickness values directly. Default is False.
-    transition : bool, optional
-        If True, treat data as a mask with True for transition cells. Default is False.
 
     Returns
     -------
@@ -232,16 +488,13 @@ def get_mensink_thickness(data, ds_pwn_data_2024, mask=False, transition=False, 
         If mask is False, returns the thickness values as a DataArray or ndarray.
 
     """
-    botm = get_mensink_botm(
-        data,
+    botm = get_botm_values(
         ds_pwn_data_2024,
-        mask=mask,
-        transition=transition,
         fix_min_layer_thickness=fix_min_layer_thickness,
     )
 
-    if "top" in data.data_vars:
-        top_botm = xr.concat((data["top"].expand_dims(dim={"layer": ["mv"]}), botm), dim="layer")
+    if "top" in ds_pwn_data_2024.data_vars:
+        top_botm = xr.concat((ds_pwn_data_2024["top"].expand_dims(dim={"layer": ["mv"]}), botm), dim="layer")
     else:
         top_botm = botm
 
@@ -253,108 +506,126 @@ def get_mensink_thickness(data, ds_pwn_data_2024, mask=False, transition=False, 
     return out
 
 
-def get_mensink_botm(
-    a: xr.Dataset, a2024: xr.Dataset, mask: bool = False, transition: bool = False, fix_min_layer_thickness=True
-):
+def get_botm_values(a2024, fix_min_layer_thickness=True):
+    out = xr.concat(
+        (
+            a2024["TS11_value"],  # Base aquifer 11
+            a2024["TS11_value"] - a2024["DS11_value"],  # Base aquitard 11
+            a2024["TS12_value"],  # Base aquifer 12
+            a2024["TS12_value"] - a2024["DS12_value"],  # Base aquitard 12
+            a2024["TS13_value"],  # Base aquifer 13
+            a2024["TS13_value"] - a2024["DS13_value"],  # Base aquitard 13
+            a2024["TS21_value"],  # Base aquifer 21
+            a2024["TS21_value"] - a2024["DS21_value"],  # Base aquitard 21
+            a2024["TS22_value"],  # Base aquifer 22
+            a2024["TS22_value"] - a2024["DS22_value"],  # Base aquitard 22
+            a2024["TS31_value"],  # Base aquifer 31
+            a2024["TS31_value"] - a2024["DS31_value"],  # Base aquitard 31
+            a2024["TS32_value"],  # Base aquifer 32
+            a2024["TS32_value"] - 5.0,  # Base aquitard 33
+            # a["TS32"] - 105., # Base aquifer 41
+        ),
+        dim=layer_names,
+    )
+    if fix_min_layer_thickness:
+        out = fix_missings_botms_and_min_layer_thickness(top=a2024["top"], botm=out)
+
+    return out
+
+
+def get_botm_mask(a):
+    return xr.concat(
+        (
+            a["TS11_mask"],
+            a["TS11_mask"],
+            a["TS12_mask"],
+            a["TS12_mask"],
+            a["TS13_mask"],
+            a["TS13_mask"],
+            a["TS21_mask"],
+            a["TS21_mask"],
+            a["TS22_mask"],
+            a["TS22_mask"],
+            a["TS31_mask"],
+            a["TS31_mask"],
+            a["TS32_mask"],
+            a["TS32_mask"],
+            # a["TS32"] - 105., # Base aquifer 41
+        ),
+        dim=layer_names,
+    )
+
+
+def get_botm_transition(a):
+    return xr.concat(
+        (
+            a["TS11_transition"],
+            a["TS11_transition"],
+            a["TS12_transition"],
+            a["TS12_transition"],
+            a["TS13_transition"],
+            a["TS13_transition"],
+            a["TS21_transition"],
+            a["TS21_transition"],
+            a["TS22_transition"],
+            a["TS22_transition"],
+            a["TS31_transition"],
+            a["TS31_transition"],
+            a["TS32_transition"],
+            a["TS32_transition"],
+            # a["TS32"] - 105., # Base aquifer 41
+        ),
+        dim=layer_names,
+    )
+
+
+def get_kh_values(data_2024, anisotropy=5.0, *, fix_min_layer_thickness=True):
     """
-    Calculate the bottom elevation of each layer in the model.
+    Calculate the hydraulic conductivity (kh) based on the given data.
 
     Parameters
     ----------
-    a :
+    data : xarray.Dataset or xarray.DataArray
+        The input data containing the necessary variables.
+    anisotropy : float, optional
+        Anisotropy factor to be applied to the aquitard layers. Default is 5.0.
 
     Returns
     -------
-    out (xarray.DataArray): Array containing the bottom elevation of each layer.
+    kh: xarray.DataArray
+        The calculated hydraulic conductivity.
+
     """
-    if mask:
-        return get_mensink_botm_mask(a)
-    if transition:
-        return get_mensink_botm_transition(a)
+    kh_mensink = get_mensink_kh(data_2024, mask=False, anisotropy=anisotropy, transition=False, fix_min_layer_thickness=fix_min_layer_thickness)
+    kh_bergen = get_bergen_kh(data_2024, mask=False, anisotropy=anisotropy, transition=False)
 
-    out = get_mensink_botm_values(a, a2024)
-
-    if fix_min_layer_thickness:
-        ds = xr.Dataset({"botm": out, "top": a["top"]})
-        fix_missings_botms_and_min_layer_thickness(ds)
-        out = ds["botm"]
-
-    return out
+    return xr.where(kh_mensink.notnull(), kh_mensink, kh_bergen)
 
 
-def get_mensink_botm_values(a, a2024):
-    out = xr.concat(
-        (
-            a2024["TS11_value"].fillna(a["TS11"]),  # Base aquifer 11
-            a2024["TS11_value"].fillna(a["TS11"]) - a2024["DS11_value"],  # Base aquitard 11
-            a2024["TS12_value"].fillna(a["TS12"]),  # Base aquifer 12
-            a2024["TS12_value"].fillna(a["TS12"]) - a2024["DS12_value"],  # Base aquitard 12
-            a2024["TS13_value"].fillna(a["TS13"]),  # Base aquifer 13
-            a2024["TS13_value"].fillna(a["TS13"]) - a2024["DS13_value"],  # Base aquitard 13
-            a2024["TS21_value"].fillna(a["TS21"]),  # Base aquifer 21
-            a2024["TS21_value"].fillna(a["TS21"]) - a2024["DS21_value"],  # Base aquitard 21
-            a2024["TS22_value"].fillna(a["TS22"]),  # Base aquifer 22
-            a2024["TS22_value"].fillna(a["TS22"]) - a2024["DS22_value"],  # Base aquitard 22
-            a2024["TS31_value"].fillna(a["TS31"]),  # Base aquifer 31
-            a2024["TS31_value"].fillna(a["TS31"]) - a2024["DS31_value"],  # Base aquitard 31
-            a2024["TS32_value"].fillna(a["TS32"]),  # Base aquifer 32
-            a2024["TS32_value"].fillna(a["TS32"]) - 5.0,  # Base aquitard 33
-            # a["TS32"] - 105., # Base aquifer 41
-        ),
-        dim=layer_names,
-    )
-    return out
+def get_kv_values(data_2024, anisotropy=5.0, *, fix_min_layer_thickness=True):
+    """
+    Calculate the hydraulic conductivity (kv) based on the given data.
+
+    Parameters
+    ----------
+    data : xarray.Dataset or xarray.DataArray
+        The input data containing the necessary variables.
+    anisotropy : float, optional
+        Anisotropy factor to be applied to the aquitard layers. Default is 5.0.
+
+    Returns
+    -------
+    kv: xarray.DataArray
+        The calculated hydraulic conductivity.
+
+    """
+    kv_mensink = get_mensink_kv(data_2024, mask=False, anisotropy=anisotropy, transition=False, fix_min_layer_thickness=fix_min_layer_thickness)
+    kv_bergen = get_bergen_kv(data_2024, mask=False, anisotropy=anisotropy, transition=False)
+
+    return xr.where(kv_mensink.notnull(), kv_mensink, kv_bergen)
 
 
-def get_mensink_botm_mask(a):
-    out = xr.concat(
-        (
-            a["TS11_mask"],
-            a["TS11_mask"],
-            a["TS12_mask"],
-            a["TS12_mask"],
-            a["TS13_mask"],
-            a["TS13_mask"],
-            a["TS21_mask"],
-            a["TS21_mask"],
-            a["TS22_mask"],
-            a["TS22_mask"],
-            a["TS31_mask"],
-            a["TS31_mask"],
-            a["TS32_mask"],
-            a["TS32_mask"],
-            # a["TS32"] - 105., # Base aquifer 41
-        ),
-        dim=layer_names,
-    )
-    return out
-
-
-def get_mensink_botm_transition(a):
-    out = xr.concat(
-        (
-            a["TS11_transition"],
-            a["TS11_transition"],
-            a["TS12_transition"],
-            a["TS12_transition"],
-            a["TS13_transition"],
-            a["TS13_transition"],
-            a["TS21_transition"],
-            a["TS21_transition"],
-            a["TS22_transition"],
-            a["TS22_transition"],
-            a["TS31_transition"],
-            a["TS31_transition"],
-            a["TS32_transition"],
-            a["TS32_transition"],
-            # a["TS32"] - 105., # Base aquifer 41
-        ),
-        dim=layer_names,
-    )
-    return out
-
-
-def get_mensink_kh(data, data_2024, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
+def get_mensink_kh(data_2024, *, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the hydraulic conductivity (kh) based on the given data.
 
@@ -376,16 +647,17 @@ def get_mensink_kh(data, data_2024, mask=False, anisotropy=5.0, transition=False
 
     """
     thickness = get_mensink_thickness(
-        data,
         data_2024,
         mask=mask,
         transition=transition,
         fix_min_layer_thickness=fix_min_layer_thickness,
     ).drop_vars("layer")
+    thickness = get_mensink_thickness(data_2024, fix_min_layer_thickness=fix_min_layer_thickness)
+    
     assert not (thickness < 0.0).any(), "Negative thickness values are not allowed."
 
     if mask:
-        _a = data[[var for var in data.variables if var.endswith("_mask")]]
+        _a = data_2024[[var for var in data_2024.variables if var.endswith("_mask")]]
         a = _a.where(_a, np.nan)
         b = thickness.where(thickness, np.nan)
 
@@ -394,7 +666,7 @@ def get_mensink_kh(data, data_2024, mask=False, anisotropy=5.0, transition=False
 
     elif transition:
         # note the ~ operator
-        _a = data[[var for var in data.variables if var.endswith("_transition")]]
+        _a = data_2024[[var for var in data_2024.variables if var.endswith("_transition")]]
         a = _a.where(~_a, np.nan).where(_a, 1.0)
         b = thickness.where(~thickness, np.nan)
 
@@ -402,7 +674,7 @@ def get_mensink_kh(data, data_2024, mask=False, anisotropy=5.0, transition=False
             return f"{s}_transition"
 
     else:
-        a = data
+        a = data_2024
 
         if fix_min_layer_thickness:
             # Should not matter too much because mask == False
@@ -448,7 +720,7 @@ def get_mensink_kh(data, data_2024, mask=False, anisotropy=5.0, transition=False
     if mask:
         return ~np.isnan(out)
     if transition:
-        mask = get_mensink_kh(data, mask=True, transition=False)
+        mask = get_mensink_kh(data_2024, mask=True, transition=False)
         transition = np.isnan(out)
         check = mask.astype(int) + transition.astype(int)
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
@@ -456,7 +728,7 @@ def get_mensink_kh(data, data_2024, mask=False, anisotropy=5.0, transition=False
     return out
 
 
-def get_mensink_kv(data, data_2024, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
+def get_mensink_kv(data_2024, mask=False, anisotropy=5.0, transition=False, fix_min_layer_thickness=True):
     """
     Calculate the hydraulic conductivity (KV) for different aquifers and aquitards.
 
@@ -485,7 +757,6 @@ def get_mensink_kv(data, data_2024, mask=False, anisotropy=5.0, transition=False
         kv_values_masked = get_mensink_kv(data, mask=True)
     """
     thickness = get_mensink_thickness(
-        data,
         data_2024,
         mask=mask,
         transition=transition,
@@ -493,7 +764,7 @@ def get_mensink_kv(data, data_2024, mask=False, anisotropy=5.0, transition=False
     ).drop_vars("layer")
 
     if mask:
-        _a = data[[var for var in data.variables if var.endswith("_mask")]]
+        _a = data_2024[[var for var in data_2024.variables if var.endswith("_mask")]]
         a = _a.where(_a, np.nan)
         b = thickness.where(thickness, np.nan)
 
@@ -502,7 +773,7 @@ def get_mensink_kv(data, data_2024, mask=False, anisotropy=5.0, transition=False
 
     elif transition:
         # note the ~ operator
-        _a = data[[var for var in data.variables if var.endswith("_transition")]]
+        _a = data_2024[[var for var in data_2024.variables if var.endswith("_transition")]]
         a = _a.where(~_a, np.nan).where(_a, 1.0)
         b = thickness.where(~thickness, np.nan)
 
@@ -510,7 +781,7 @@ def get_mensink_kv(data, data_2024, mask=False, anisotropy=5.0, transition=False
             return f"{s}_transition"
 
     else:
-        a = data
+        a = data_2024
         b = thickness
 
         if fix_min_layer_thickness:
@@ -543,7 +814,7 @@ def get_mensink_kv(data, data_2024, mask=False, anisotropy=5.0, transition=False
     if mask:
         return ~np.isnan(out)
     if transition:
-        mask = get_mensink_kv(data, mask=True, transition=False)
+        mask = get_mensink_kv(data_2024, mask=True, transition=False)
         transition = np.isnan(out)
         check = mask.astype(int) + transition.astype(int)
         assert (check <= 1).all(), "Transition cells should not overlap with mask."
