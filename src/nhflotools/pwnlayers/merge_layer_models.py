@@ -168,8 +168,8 @@ def combine_two_layer_models(
     dfk_lower = dfk[dfk[koppeltabel_header_other].isna()]
 
     # Fix minimum layer thickness in REGIS and OTHER. Still required to fix transition zone.
-    fix_missings_botms_and_min_layer_thickness(layer_model_regis)
-    fix_missings_botms_and_min_layer_thickness(layer_model_other)
+    layer_model_regis["botm"] = fix_missings_botms_and_min_layer_thickness(top=top, botm=layer_model_regis["botm"])
+    layer_model_other["botm"] = fix_missings_botms_and_min_layer_thickness(top=top, botm=layer_model_other["botm"])
 
     # Apply mask to other layer model
     for var in ["kh", "kv", "botm"]:
@@ -305,7 +305,7 @@ def combine_two_layer_models(
     out_upper_lower["top"] = top
 
     # The botm of the upper layermodel may cross the botm of the first layers opf the lower layermodel.
-    fix_missings_botms_and_min_layer_thickness(out_upper_lower)
+    out_upper_lower["botm"] = fix_missings_botms_and_min_layer_thickness(top=top, botm=out_upper_lower["botm"])
 
     cat_upper_lower = xr.concat(
         [
@@ -495,7 +495,7 @@ def _validate_inputs(
     # No overlap between mask_model_other and transition_model
     assert all(
         (mask_model_other[k].astype(int) + transition_model[k].astype(int) < 2).all()
-        for k in ["kh", "kv", "botm", "top"]
+        for k in ["kh", "kv", "botm"]
     ), "mask_model_other and transition_model should not overlap"
 
     # Check layer names don't contain underscores
