@@ -480,6 +480,9 @@ def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None, isin
     # TODO: [Edinsi 3.1, p.12] Edinsi notes that depth shapefiles extend west of the coastline
     #   into the North Sea. The nearest-neighbor fallback below may assign inappropriate values
     #   to cells under the seabed where layers may not exist. Edinsi recommends investigating.
+    #   Consider using the noordzee_clip polygon (bodemlagen_pwn_2024/v2.0.0/noordzee_clip/
+    #   noordzee_clip.geojson) to mask out North Sea cells and ensure interpolation does not
+    #   extrapolate layer elevations into areas where geological layers may be absent.
     # TODO: [Edinsi 4.4, p.36-37] Edinsi notes a thickness jump from 1.5m to 0.2m for S1.1 at
     #   the Koster/Bergen boundary. This discontinuity propagates through the interpolation here.
     fp = data_path_2024 / "botm" / "botm.geojson"
