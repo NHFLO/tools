@@ -653,7 +653,7 @@ def get_mensink_kh(data_2024, *, mask=False, anisotropy=5.0, transition=False, f
         fix_min_layer_thickness=fix_min_layer_thickness,
     ).drop_vars("layer")
     thickness = get_mensink_thickness(data_2024, fix_min_layer_thickness=fix_min_layer_thickness)
-    
+
     assert not (thickness < 0.0).any(), "Negative thickness values are not allowed."
 
     if mask:
