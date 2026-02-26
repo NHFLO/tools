@@ -1,4 +1,28 @@
-"""Module containing functions to retrieve PWN bodemlagen."""
+"""Module containing functions to retrieve PWN bodemlagen.
+
+Open concerns from Edinsi Groundwater report
+---------------------------------------------
+Source: rapportage_lagenmodel_pwn_concept.pdf, Vincent Post (Edinsi Groundwater), Aug 2024.
+Located at: bodemlagen_pwn_2024/v2.0.0/report/
+
+The following concerns from the Edinsi report affect this module's processing.
+Detailed per-file TODOs are placed in the data preparation scripts (botm.py,
+conductances.py, boundaries/_convert_boundaries.py). The items below are the
+concerns most relevant to *this* module's interpretation of the data:
+
+- [Edinsi 3.1, p.12] Depth data extends into the North Sea. Whether layers
+  truly exist under the seabed is unverified. The nearest-neighbor fallback
+  used in get_botm() may assign inappropriate values there.
+- [Edinsi 3.2, p.24] C12AREA has extreme resistance (37800 d) west of
+  Castricum. This flows through to get_kv() without validation.
+- [Edinsi 4.1, p.32] S2.1 boundary may be too small (Eem clay has larger
+  extent per REGIS). Affects get_mask() and get_botm() for S21/W21.
+- [Edinsi 4.2-4.4, p.34-37] Several layer boundaries (S1.1, S1.2, S1.3)
+  have known gaps or inconsistencies at the NHDZ/Bergen boundary. These
+  affect get_botm() interpolation quality in that transition zone.
+- [Edinsi 6, p.40] S3.2, S3.1, S2.2 only have NHDZ boundaries (no Bergen
+  data). Edinsi recommends extending these northward.
+"""
 
 import logging
 from importlib import metadata
@@ -153,17 +177,19 @@ def get_pwn_layer_model(
         koppeltabel_header_other="ASSUMPTION1",
     )
     if fix_min_layer_thickness:
-        layer_model_pwn_regis["botm"] = fix_missings_botms_and_min_layer_thickness(top=top, botm=layer_model_pwn_regis["botm"])
+        layer_model_pwn_regis["botm"] = fix_missings_botms_and_min_layer_thickness(
+            top=top, botm=layer_model_pwn_regis["botm"]
+        )
 
-    m = np.isclose(layer_model_pwn_regis.kh, 0.0)
+    m = np.isclose(layer_model_pwn_regis.kh, 0.0) | ~np.isfinite(layer_model_pwn_regis.kh)
     if np.any(m):
-        logger.warning("Setting %d values of kh that are exactly zero to 1e-6 m/d.", m.sum().item())
-        layer_model_pwn_regis["kh"] = layer_model_pwn_regis.kh.where(~m, 1e-6)
+        logger.warning("Setting %d problematic kh values (zero/inf/nan) to NaN m/d.", m.sum().item())
+        layer_model_pwn_regis["kh"] = layer_model_pwn_regis.kh.where(~m, np.nan)
 
-    m = np.isclose(layer_model_pwn_regis.kv, 0.0)
+    m = np.isclose(layer_model_pwn_regis.kv, 0.0) | ~np.isfinite(layer_model_pwn_regis.kv)
     if np.any(m):
-        logger.warning("Setting %d values of kv that are exactly zero to 1e-6 m/d.", m.sum().item())
-        layer_model_pwn_regis["kv"] = layer_model_pwn_regis.kv.where(~m, 1e-6)
+        logger.warning("Setting %d problematic kv values (zero/inf/nan) to NaN m/d.", m.sum().item())
+        layer_model_pwn_regis["kv"] = layer_model_pwn_regis.kv.where(~m, np.nan)
 
     layer_model_active = nlmod.layers.fill_nan_top_botm_kh_kv(
         layer_model_pwn_regis,
@@ -296,13 +322,38 @@ def get_ds(
     )
 
     # Validate consistency between data, mask, and transition
-    for var in ["kh", "kv", "botm"]:
+    full_thickness = nlmod.dims.layers.calculate_thickness(ds)
+    zero_thick = np.isclose(full_thickness, 0.0)
+
+    # Strict validation for botm (no zero-thickness exceptions)
+    for var in ["botm"]:
         if not (ds[var].notnull() == mask[var]).all():
             msg = f"{var} has NaN values in cells where mask is True"
             raise ValueError(msg)
         if not (ds[var].isnull() == ~mask[var]).all():
             msg = f"{var} has valid values in cells where mask is False"
             raise ValueError(msg)
+
+    # Relaxed validation for kh/kv: allow NaN at zero-thickness cells
+    for var in ["kh", "kv"]:
+        nan_in_mask = ds[var].isnull() & mask[var]
+        if nan_in_mask.any():
+            nan_at_nonzero_thick = nan_in_mask & ~zero_thick
+            if nan_at_nonzero_thick.any():
+                msg = f"{var} has NaN values in cells where mask is True and thickness > 0"
+                raise ValueError(msg)
+            logger.warning(
+                "%s has %d NaN values at zero-thickness cells within mask. These will be filled downstream.",
+                var,
+                nan_in_mask.sum().item(),
+            )
+
+        valid_outside_mask = ds[var].notnull() & ~mask[var]
+        if valid_outside_mask.any():
+            msg = f"{var} has valid values in cells where mask is False"
+            raise ValueError(msg)
+
+    for var in ["kh", "kv", "botm"]:
         if not ((mask[var].astype(int) + transition[var].astype(int)) <= 1).all():
             msg = f"Overlap between mask and transition for {var}"
             raise ValueError(msg)
@@ -374,6 +425,11 @@ def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None):
         Bottom elevations with dimensions (layer, icell2d) in mNAP. Cells
         outside the layer boundary are NaN.
     """
+    # TODO: [Edinsi 3.1, p.12] Edinsi notes that depth shapefiles extend west of the coastline
+    #   into the North Sea. The nearest-neighbor fallback below may assign inappropriate values
+    #   to cells under the seabed where layers may not exist. Edinsi recommends investigating.
+    # TODO: [Edinsi 4.4, p.36-37] Edinsi notes a thickness jump from 1.5m to 0.2m for S1.1 at
+    #   the Koster/Bergen boundary. This discontinuity propagates through the interpolation here.
     fp = data_path_2024 / "botm" / "botm.geojson"
     gdf_botm = gpd.read_file(fp, driver="GeoJSON")
 
@@ -508,10 +564,16 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0):
             kd_nhdz = griddata(xy_in, gdf["VALUE"].values, xy_out[is_nhdz], method="linear")
             nan_mask = np.isnan(kd_nhdz)
             if nan_mask.any():
-                kd_nhdz[nan_mask] = griddata(
-                    xy_in, gdf["VALUE"].values, xy_out[is_nhdz][nan_mask], method="nearest"
+                kd_nhdz[nan_mask] = griddata(xy_in, gdf["VALUE"].values, xy_out[is_nhdz][nan_mask], method="nearest")
+            zero_d = np.isclose(d_nhdz, 0.0)
+            if zero_d.any():
+                logger.warning(
+                    "Layer %s NHDZ: %d cells have zero thickness. Setting kh to NaN.",
+                    name,
+                    zero_d.sum(),
                 )
-            data[i, is_nhdz] = kd_nhdz / d_nhdz
+            safe_d = np.where(zero_d, np.nan, d_nhdz)
+            data[i, is_nhdz] = kd_nhdz / safe_d
 
             # Bergen area: kh from vertical resistance (c) polygon data
             is_bergen = mask & ~is_within_nhdz_bound
@@ -526,7 +588,15 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0):
             inv_c = nlmod.dims.gdf_to_da(
                 gdf=gdf, ds=ds.isel(icell2d=is_bergen), column="inv_VALUE", agg_method="area_weighted"
             ).values
-            data[i, is_bergen] = d_bergen * anisotropy * inv_c
+            zero_d = np.isclose(d_bergen, 0.0)
+            if zero_d.any():
+                logger.warning(
+                    "Layer %s Bergen: %d cells have zero thickness. Setting kh to NaN.",
+                    name,
+                    zero_d.sum(),
+                )
+            safe_d = np.where(zero_d, np.nan, d_bergen)
+            data[i, is_bergen] = safe_d * anisotropy * inv_c
         elif name in {"S11", "S32"}:
             fp = data_path_2024 / "conductances" / f"C{name}_combined.geojson"
             gdf = gpd.read_file(fp, driver="GeoJSON")
@@ -537,7 +607,15 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0):
             d = thickness.sel(layer=name).values
             gdf["inv_VALUE"] = 1.0 / gdf["VALUE"]
             inv_c = nlmod.dims.gdf_to_da(gdf=gdf, ds=ds, column="inv_VALUE", agg_method="area_weighted").values
-            data[i, mask] = (d * anisotropy * inv_c)[mask]
+            zero_d = np.isclose(d, 0.0)
+            if zero_d[mask].any():
+                logger.warning(
+                    "Layer %s: %d cells have zero thickness. Setting kh to NaN.",
+                    name,
+                    zero_d[mask].sum(),
+                )
+            safe_d = np.where(zero_d, np.nan, d)
+            data[i, mask] = (safe_d * anisotropy * inv_c)[mask]
         else:
             msg = f"Unknown layer name {name} for assigning kh"
             raise ValueError(msg)
@@ -600,7 +678,15 @@ def get_kv(*, ds, data_path_2024, kh, thickness, anisotropy=10.0):
             d = thickness.sel(layer=name).values
             gdf["inv_VALUE"] = 1.0 / gdf["VALUE"]
             inv_c = nlmod.dims.gdf_to_da(gdf=gdf, ds=ds, column="inv_VALUE", agg_method="area_weighted").values
-            data[i, mask] = (d * inv_c)[mask]
+            zero_d = np.isclose(d, 0.0)
+            if zero_d[mask].any():
+                logger.warning(
+                    "Layer %s: %d cells have zero thickness. Setting kv to NaN.",
+                    name,
+                    zero_d[mask].sum(),
+                )
+            safe_d = np.where(zero_d, np.nan, d)
+            data[i, mask] = (safe_d * inv_c)[mask]
         else:
             msg = f"Unknown layer name {name} for assigning kv"
             raise ValueError(msg)
