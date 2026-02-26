@@ -39,8 +39,6 @@ from scipy.interpolate import griddata
 
 from nhflotools.pwnlayers.merge_layer_models import combine_two_layer_models
 
-# from nhflotools.pwnlayers.utils import fix_missings_botms_and_min_layer_thickness
-
 logger = logging.getLogger(__name__)
 
 layer_names = pd.Index(
@@ -233,8 +231,8 @@ def get_ds(
     anisotropy=10.0,
     distance_transition=250.0,
     fix_min_layer_thickness=True,
-    fill_value_kh=1.0,
-    fill_value_kv=0.1,
+    fill_value_kh=5.0,
+    fill_value_kv=1.0,
 ):
     """Compute PWN layer model dataset with mask and transition zone.
 
@@ -274,11 +272,16 @@ def get_ds(
     transition : xr.Dataset
         Boolean mask per variable indicating transition zone cells.
     """
+    # Compute boundaries and per-layer masks once, pass to sub-functions
+    gdf_boundaries = get_gdf_boundaries(data_path_2024)
+    isin_bounds = _compute_isin_bounds(ds=ds_regis, gdf_boundaries=gdf_boundaries)
+
     botm = get_botm(
         ds=ds_regis,
         data_path_2024=data_path_2024,
         fix_min_layer_thickness=fix_min_layer_thickness,
         top=top,
+        isin_bounds=isin_bounds,
     )
     thickness = get_thickness(botm=botm)
     kh = get_kh(
@@ -287,6 +290,7 @@ def get_ds(
         botm=botm,
         anisotropy=anisotropy,
         fill_value_kh=fill_value_kh,
+        isin_bounds=isin_bounds,
     )
     kv = get_kv(
         ds=ds_regis,
@@ -295,6 +299,7 @@ def get_ds(
         thickness=thickness,
         anisotropy=anisotropy,
         fill_value_kv=fill_value_kv,
+        isin_bounds=isin_bounds,
     )
 
     ds = xr.Dataset(
@@ -312,7 +317,7 @@ def get_ds(
     )
 
     # Compute mask; where ds is valid
-    mask_da = get_mask(ds=ds_regis, data_path_2024=data_path_2024)
+    mask_da = _isin_bounds_to_da(isin_bounds=isin_bounds, ds=ds_regis)
     mask = xr.Dataset(
         {
             "botm": mask_da,
@@ -323,7 +328,7 @@ def get_ds(
 
     # Compute transition; where ds is in transition zone towards REGIS
     transition_da = get_transition(
-        ds=ds_regis, data_path_2024=data_path_2024, distance_transition=distance_transition, mask=mask_da
+        ds=ds_regis, gdf_boundaries=gdf_boundaries, distance_transition=distance_transition, mask=mask_da
     )
     transition = xr.Dataset(
         {
@@ -343,6 +348,10 @@ def get_ds(
             raise ValueError(msg)
         if not np.isfinite(ds[var].where(mask[var], 0.0)).all():
             msg = f"{var} has non-finite values (inf/-inf) in cells where mask is True"
+            raise ValueError(msg)
+    for var in ["kh", "kv"]:
+        if not (ds[var].where(mask[var], 1.0) > 0.0).all():
+            msg = f"{var} has non-positive values in cells where mask is True"
             raise ValueError(msg)
         if not ((mask[var].astype(int) + transition[var].astype(int)) <= 1).all():
             msg = f"Overlap between mask and transition for {var}"
@@ -388,7 +397,56 @@ def get_gdf_boundaries(data_path_2024):
     return gdf_out.set_crs(gdf.crs)
 
 
-def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None):
+def _compute_isin_bounds(*, ds, gdf_boundaries):
+    """Compute per-layer boolean array indicating cells within boundary polygons.
+
+    Cells where ``isin_bounds`` is True are expected to have valid (non-NaN)
+    data values for all layer variables (botm, kh, kv).
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Model dataset with grid cell coordinates.
+    gdf_boundaries : gpd.GeoDataFrame
+        Boundary polygons indexed by layer name.
+
+    Returns
+    -------
+    np.ndarray
+        Boolean array of shape (n_layers, n_cells). True where the cell is
+        fully contained within the layer boundary polygon.
+    """
+    mask_data = np.full((len(layer_names), ds.icell2d.size), False)
+    for i, name in enumerate(layer_names):
+        mask_data[i] = gdf_to_bool_da(gdf_boundaries.loc[[name]], ds, min_area_fraction=1.0).values
+    return mask_data
+
+
+def _isin_bounds_to_da(*, isin_bounds, ds):
+    """Convert per-layer boolean mask array to xr.DataArray.
+
+    Parameters
+    ----------
+    isin_bounds : np.ndarray
+        Boolean array of shape (n_layers, n_cells).
+    ds : xr.Dataset
+        Model dataset with grid cell coordinates.
+
+    Returns
+    -------
+    xr.DataArray
+        Boolean mask with dimensions (layer, icell2d).
+    """
+    return xr.DataArray(
+        isin_bounds,
+        dims=("layer", "icell2d"),
+        coords={"layer": layer_names, "icell2d": ds.icell2d},
+        name="mask",
+        attrs={"long_name": "Mask indicating valid model cells"},
+    )
+
+
+def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None, isin_bounds=None):
     """Compute bottom elevations for all model layers.
 
     Reads bottom elevation point data from a GeoJSON file and interpolates
@@ -408,6 +466,10 @@ def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None):
     top : xr.DataArray, optional
         Top elevations of the model layers. Required if fix_min_layer_thickness
         is True and not provided, the top elevations will be taken from ds.top.
+    isin_bounds : np.ndarray, optional
+        Pre-computed boolean array of shape (n_layers, n_cells) from
+        ``_compute_isin_bounds``. True where valid data values are expected.
+        If None, computed internally.
 
     Returns
     -------
@@ -423,16 +485,16 @@ def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None):
     fp = data_path_2024 / "botm" / "botm.geojson"
     gdf_botm = gpd.read_file(fp, driver="GeoJSON")
 
-    gdf_boundaries = get_gdf_boundaries(data_path_2024)
+    if isin_bounds is None:
+        gdf_boundaries = get_gdf_boundaries(data_path_2024)
+        isin_bounds = _compute_isin_bounds(ds=ds, gdf_boundaries=gdf_boundaries)
 
     xy_in = np.column_stack((gdf_botm.geometry.x.values, gdf_botm.geometry.y.values))
     xy_out = np.column_stack((ds.x.values, ds.y.values))
 
     data = np.full((len(layer_names), xy_out.shape[0]), np.nan)
-    mask_data = np.full_like(data, False, dtype=bool)
     for i, layer_name in enumerate(layer_names):
-        mask = gdf_to_bool_da(gdf_boundaries.loc[[layer_name]], ds, min_area_fraction=1.0).values
-        mask_data[i] = mask
+        mask = isin_bounds[i]
         values = griddata(xy_in, gdf_botm[layer_name].values, xy_out[mask], method="linear")
         nan_mask = np.isnan(values)
         if nan_mask.any():
@@ -454,7 +516,7 @@ def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None):
         botm = fix_missings_botms_and_min_layer_thickness(top=top, botm=botm)
 
     # Clip to boundary mask (fix_min_layer_thickness ffill may extend beyond boundaries)
-    botm = botm.where(mask_data)
+    botm = botm.where(isin_bounds)
     return botm
 
 
@@ -484,7 +546,42 @@ def get_thickness(*, botm):
     return thickness
 
 
-def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0, fill_value_kh=1.0):
+def _guard_zero_thickness(values, thickness, fill_value, layer_name, region=""):
+    """Replace values at zero-thickness cells with a fill value.
+
+    Parameters
+    ----------
+    values : np.ndarray
+        Computed kh or kv values.
+    thickness : np.ndarray
+        Layer thickness array (same shape as values).
+    fill_value : float
+        Fill value for zero-thickness cells.
+    layer_name : str
+        Layer name for log messages.
+    region : str, optional
+        Region name for log messages (e.g., "NHDZ", "Bergen").
+
+    Returns
+    -------
+    np.ndarray
+        Values with zero-thickness cells replaced by fill_value.
+    """
+    zero_d = np.isclose(thickness, 0.0)
+    if zero_d.any():
+        region_str = f" {region}" if region else ""
+        logger.warning(
+            "Layer %s%s: %d cells have zero thickness. Setting to fill_value=%.2f.",
+            layer_name,
+            region_str,
+            zero_d.sum(),
+            fill_value,
+        )
+        values[zero_d] = fill_value
+    return values
+
+
+def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0, fill_value_kh=5.0, isin_bounds=None):
     """Compute horizontal hydraulic conductivity (kh) for all model layers.
 
     Assigns kh values to each grid cell per layer, using different data sources
@@ -520,6 +617,10 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0, fill_value_kh=1.0)
     fill_value_kh : float, optional
         Fill value for kh in cells with zero layer thickness (m/day).
         These cells will be set inactive downstream. Default is 1.0.
+    isin_bounds : np.ndarray, optional
+        Pre-computed boolean array of shape (n_layers, n_cells) from
+        ``_compute_isin_bounds``. True where valid data values are expected.
+        If None, computed internally.
 
     Returns
     -------
@@ -536,12 +637,14 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0, fill_value_kh=1.0)
     xy_out = np.column_stack((ds.x.values, ds.y.values))
     is_within_nhdz_bound = gdf_to_bool_da(gdf_nhdz, ds, min_area_fraction=1.0).values
 
-    gdf_boundaries = get_gdf_boundaries(data_path_2024)
+    if isin_bounds is None:
+        gdf_boundaries = get_gdf_boundaries(data_path_2024)
+        isin_bounds = _compute_isin_bounds(ds=ds, gdf_boundaries=gdf_boundaries)
 
     data = np.full((len(layer_names), ds.icell2d.size), np.nan)
 
     for i, name in enumerate(layer_names):
-        mask = gdf_to_bool_da(gdf_boundaries.loc[[name]], ds, min_area_fraction=1.0).values
+        mask = isin_bounds[i]
         if name[0] == "W":
             fp = data_path_2024 / "conductances" / f"K{name}_combined.geojson"
             gdf = gpd.read_file(fp, driver="GeoJSON")
@@ -558,18 +661,9 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0, fill_value_kh=1.0)
             nan_mask = np.isnan(kd_nhdz)
             if nan_mask.any():
                 kd_nhdz[nan_mask] = griddata(xy_in, gdf["VALUE"].values, xy_out[is_nhdz][nan_mask], method="nearest")
-            zero_d = np.isclose(d_nhdz, 0.0)
-            if zero_d.any():
-                logger.warning(
-                    "Layer %s NHDZ: %d cells have zero thickness. Setting kh to fill_value_kh=%.2f.",
-                    name,
-                    zero_d.sum(),
-                    fill_value_kh,
-                )
-            safe_d = np.where(zero_d, np.nan, d_nhdz)
+            safe_d = np.where(np.isclose(d_nhdz, 0.0), np.nan, d_nhdz)
             kh_values = kd_nhdz / safe_d
-            kh_values[zero_d] = fill_value_kh
-            data[i, is_nhdz] = kh_values
+            data[i, is_nhdz] = _guard_zero_thickness(kh_values, d_nhdz, fill_value_kh, name, "NHDZ")
 
             # Bergen area: kh from vertical resistance (c) polygon data
             is_bergen = mask & ~is_within_nhdz_bound
@@ -584,18 +678,9 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0, fill_value_kh=1.0)
             inv_c = nlmod.dims.gdf_to_da(
                 gdf=gdf, ds=ds.isel(icell2d=is_bergen), column="inv_VALUE", agg_method="area_weighted"
             ).values
-            zero_d = np.isclose(d_bergen, 0.0)
-            if zero_d.any():
-                logger.warning(
-                    "Layer %s Bergen: %d cells have zero thickness. Setting kh to fill_value_kh=%.2f.",
-                    name,
-                    zero_d.sum(),
-                    fill_value_kh,
-                )
-            safe_d = np.where(zero_d, np.nan, d_bergen)
+            safe_d = np.where(np.isclose(d_bergen, 0.0), np.nan, d_bergen)
             kh_values = safe_d * anisotropy * inv_c
-            kh_values[zero_d] = fill_value_kh
-            data[i, is_bergen] = kh_values
+            data[i, is_bergen] = _guard_zero_thickness(kh_values, d_bergen, fill_value_kh, name, "Bergen")
         elif name in {"S11", "S32"}:
             fp = data_path_2024 / "conductances" / f"C{name}_combined.geojson"
             gdf = gpd.read_file(fp, driver="GeoJSON")
@@ -606,17 +691,9 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0, fill_value_kh=1.0)
             d = thickness.sel(layer=name).values
             gdf["inv_VALUE"] = 1.0 / gdf["VALUE"]
             inv_c = nlmod.dims.gdf_to_da(gdf=gdf, ds=ds, column="inv_VALUE", agg_method="area_weighted").values
-            zero_d = np.isclose(d, 0.0)
-            if zero_d[mask].any():
-                logger.warning(
-                    "Layer %s: %d cells have zero thickness. Setting kh to fill_value_kh=%.2f.",
-                    name,
-                    zero_d[mask].sum(),
-                    fill_value_kh,
-                )
-            safe_d = np.where(zero_d, np.nan, d)
+            safe_d = np.where(np.isclose(d, 0.0), np.nan, d)
             kh_values = safe_d * anisotropy * inv_c
-            kh_values[zero_d] = fill_value_kh
+            kh_values = _guard_zero_thickness(kh_values, d, fill_value_kh, name)
             data[i, mask] = kh_values[mask]
         else:
             msg = f"Unknown layer name {name} for assigning kh"
@@ -631,7 +708,7 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0, fill_value_kh=1.0)
     )
 
 
-def get_kv(*, ds, data_path_2024, kh, thickness, anisotropy=10.0, fill_value_kv=0.1):
+def get_kv(*, ds, data_path_2024, kh, thickness, anisotropy=10.0, fill_value_kv=1.0, isin_bounds=None):
     """Compute vertical hydraulic conductivity (kv) for all model layers.
 
     Assigns kv values to each grid cell per layer:
@@ -659,6 +736,10 @@ def get_kv(*, ds, data_path_2024, kh, thickness, anisotropy=10.0, fill_value_kv=
     fill_value_kv : float, optional
         Fill value for kv in cells with zero layer thickness (m/day).
         These cells will be set inactive downstream. Default is 0.1.
+    isin_bounds : np.ndarray, optional
+        Pre-computed boolean array of shape (n_layers, n_cells) from
+        ``_compute_isin_bounds``. True where valid data values are expected.
+        If None, computed internally.
 
     Returns
     -------
@@ -666,11 +747,14 @@ def get_kv(*, ds, data_path_2024, kh, thickness, anisotropy=10.0, fill_value_kv=
         Vertical hydraulic conductivity with dimensions (layer, icell2d)
         in m/day.
     """
-    gdf_boundaries = get_gdf_boundaries(data_path_2024)
+    if isin_bounds is None:
+        gdf_boundaries = get_gdf_boundaries(data_path_2024)
+        isin_bounds = _compute_isin_bounds(ds=ds, gdf_boundaries=gdf_boundaries)
+
     data = np.full((len(layer_names), ds.icell2d.size), np.nan)
 
     for i, name in enumerate(layer_names):
-        mask = gdf_to_bool_da(gdf_boundaries.loc[[name]], ds, min_area_fraction=1.0).values
+        mask = isin_bounds[i]
         if name[0] == "W":
             data[i, mask] = (kh.sel(layer=name) / anisotropy).values[mask]
         elif name[0] == "S":
@@ -683,17 +767,9 @@ def get_kv(*, ds, data_path_2024, kh, thickness, anisotropy=10.0, fill_value_kv=
             d = thickness.sel(layer=name).values
             gdf["inv_VALUE"] = 1.0 / gdf["VALUE"]
             inv_c = nlmod.dims.gdf_to_da(gdf=gdf, ds=ds, column="inv_VALUE", agg_method="area_weighted").values
-            zero_d = np.isclose(d, 0.0)
-            if zero_d[mask].any():
-                logger.warning(
-                    "Layer %s: %d cells have zero thickness. Setting kv to fill_value_kv=%.2f.",
-                    name,
-                    zero_d[mask].sum(),
-                    fill_value_kv,
-                )
-            safe_d = np.where(zero_d, np.nan, d)
+            safe_d = np.where(np.isclose(d, 0.0), np.nan, d)
             kv_values = safe_d * inv_c
-            kv_values[zero_d] = fill_value_kv
+            kv_values = _guard_zero_thickness(kv_values, d, fill_value_kv, name)
             data[i, mask] = kv_values[mask]
         else:
             msg = f"Unknown layer name {name} for assigning kv"
@@ -734,25 +810,11 @@ def get_mask(*, ds, data_path_2024):
         cells fully within the boundary.
     """
     gdf_boundaries = get_gdf_boundaries(data_path_2024)
-
-    data = np.full((len(layer_names), ds.icell2d.size), False)
-    for i, name in enumerate(layer_names):
-        data[i] = gdf_to_bool_da(
-            gdf_boundaries.loc[[name]],
-            ds,
-            min_area_fraction=1.0,
-        ).values
-
-    return xr.DataArray(
-        data,
-        dims=("layer", "icell2d"),
-        coords={"layer": layer_names, "icell2d": ds.icell2d},
-        name="mask",
-        attrs={"long_name": "Mask indicating valid model cells"},
-    )
+    isin_bounds = _compute_isin_bounds(ds=ds, gdf_boundaries=gdf_boundaries)
+    return _isin_bounds_to_da(isin_bounds=isin_bounds, ds=ds)
 
 
-def get_transition(*, ds, data_path_2024, distance_transition, mask=None):
+def get_transition(*, ds, gdf_boundaries=None, data_path_2024=None, distance_transition, mask=None):
     """Compute transition zone mask around layer boundaries.
 
     A cell is in the transition zone if it is fully inside the buffered
@@ -764,8 +826,12 @@ def get_transition(*, ds, data_path_2024, distance_transition, mask=None):
     ----------
     ds : xr.Dataset
         Model dataset with grid cell coordinates (x, y, icell2d).
-    data_path_2024 : pathlib.Path
-        Path to the 2024 data directory containing boundary GeoJSON files.
+    gdf_boundaries : gpd.GeoDataFrame, optional
+        Pre-computed boundary polygons from ``get_gdf_boundaries``. If None,
+        computed from ``data_path_2024``.
+    data_path_2024 : pathlib.Path, optional
+        Path to the 2024 data directory. Used only if ``gdf_boundaries`` is
+        None.
     distance_transition : float
         Buffer distance in meters to expand the boundary outward.
     mask : xr.DataArray, optional
@@ -781,7 +847,8 @@ def get_transition(*, ds, data_path_2024, distance_transition, mask=None):
     if mask is None:
         mask = get_mask(ds=ds, data_path_2024=data_path_2024)
 
-    gdf_boundaries = get_gdf_boundaries(data_path_2024)
+    if gdf_boundaries is None:
+        gdf_boundaries = get_gdf_boundaries(data_path_2024)
 
     data = np.full((len(layer_names), ds.icell2d.size), False)
     for i, name in enumerate(layer_names):
@@ -836,11 +903,12 @@ def fix_missings_botms_and_min_layer_thickness(*, top=None, botm=None):
     botm_fixed = out.isel(layer=slice(1, None)).transpose("layer", "icell2d")
 
     # inform
-    ncell, nisnull = botm.size, botm.isnull().sum()
-    nfixed = (~np.isclose(botm, botm_fixed)).sum()
+    ncell = botm.size
+    nisnull = int(botm.isnull().sum())
+    nshifted = int((~np.isclose(botm, botm_fixed) & botm.notnull()).sum())
     logger.info(
         "Fixed %.1f%% missing botms using downward fill. Shifted %.1f%% botms to ensure all layers have a positive thickness, assuming more info is in the upper layer.",
         nisnull / ncell * 100.0,
-        (nfixed - nisnull) / ncell * 100.0,
+        nshifted / ncell * 100.0,
     )
     return botm_fixed
