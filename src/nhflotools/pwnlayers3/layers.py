@@ -159,6 +159,8 @@ def get_pwn_layer_model(
         anisotropy=anisotropy,
         distance_transition=distance_transition,
         fix_min_layer_thickness=fix_min_layer_thickness,
+        fill_value_kh=fill_value_kh,
+        fill_value_kv=fill_value_kv,
     )
     ds_pwn_thickness = nlmod.dims.layers.calculate_thickness(ds_pwn)
     if (ds_pwn_thickness < 0.0).any():
@@ -231,6 +233,8 @@ def get_ds(
     anisotropy=10.0,
     distance_transition=250.0,
     fix_min_layer_thickness=True,
+    fill_value_kh=1.0,
+    fill_value_kv=0.1,
 ):
     """Compute PWN layer model dataset with mask and transition zone.
 
@@ -254,6 +258,12 @@ def get_ds(
     fix_min_layer_thickness : bool, optional
         Whether to fix missing bottom elevations and enforce a minimum layer
         thickness. Default is True.
+    fill_value_kh : float, optional
+        Fill value for kh in cells with zero layer thickness (m/day).
+        Default is 1.0.
+    fill_value_kv : float, optional
+        Fill value for kv in cells with zero layer thickness (m/day).
+        Default is 0.1.
 
     Returns
     -------
@@ -276,6 +286,7 @@ def get_ds(
         data_path_2024=data_path_2024,
         botm=botm,
         anisotropy=anisotropy,
+        fill_value_kh=fill_value_kh,
     )
     kv = get_kv(
         ds=ds_regis,
@@ -283,6 +294,7 @@ def get_ds(
         kh=kh,
         thickness=thickness,
         anisotropy=anisotropy,
+        fill_value_kv=fill_value_kv,
     )
 
     ds = xr.Dataset(
@@ -322,38 +334,16 @@ def get_ds(
     )
 
     # Validate consistency between data, mask, and transition
-    full_thickness = nlmod.dims.layers.calculate_thickness(ds)
-    zero_thick = np.isclose(full_thickness, 0.0)
-
-    # Strict validation for botm (no zero-thickness exceptions)
-    for var in ["botm"]:
+    for var in ["kh", "kv", "botm"]:
         if not (ds[var].notnull() == mask[var]).all():
             msg = f"{var} has NaN values in cells where mask is True"
             raise ValueError(msg)
         if not (ds[var].isnull() == ~mask[var]).all():
             msg = f"{var} has valid values in cells where mask is False"
             raise ValueError(msg)
-
-    # Relaxed validation for kh/kv: allow NaN at zero-thickness cells
-    for var in ["kh", "kv"]:
-        nan_in_mask = ds[var].isnull() & mask[var]
-        if nan_in_mask.any():
-            nan_at_nonzero_thick = nan_in_mask & ~zero_thick
-            if nan_at_nonzero_thick.any():
-                msg = f"{var} has NaN values in cells where mask is True and thickness > 0"
-                raise ValueError(msg)
-            logger.warning(
-                "%s has %d NaN values at zero-thickness cells within mask. These will be filled downstream.",
-                var,
-                nan_in_mask.sum().item(),
-            )
-
-        valid_outside_mask = ds[var].notnull() & ~mask[var]
-        if valid_outside_mask.any():
-            msg = f"{var} has valid values in cells where mask is False"
+        if not np.isfinite(ds[var].where(mask[var], 0.0)).all():
+            msg = f"{var} has non-finite values (inf/-inf) in cells where mask is True"
             raise ValueError(msg)
-
-    for var in ["kh", "kv", "botm"]:
         if not ((mask[var].astype(int) + transition[var].astype(int)) <= 1).all():
             msg = f"Overlap between mask and transition for {var}"
             raise ValueError(msg)
@@ -494,7 +484,7 @@ def get_thickness(*, botm):
     return thickness
 
 
-def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0):
+def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0, fill_value_kh=1.0):
     """Compute horizontal hydraulic conductivity (kh) for all model layers.
 
     Assigns kh values to each grid cell per layer, using different data sources
@@ -527,6 +517,9 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0):
     anisotropy : float, optional
         Ratio of horizontal to vertical hydraulic conductivity (kh / kv).
         Used when deriving kh from vertical resistance. Default is 10.0.
+    fill_value_kh : float, optional
+        Fill value for kh in cells with zero layer thickness (m/day).
+        These cells will be set inactive downstream. Default is 1.0.
 
     Returns
     -------
@@ -568,12 +561,15 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0):
             zero_d = np.isclose(d_nhdz, 0.0)
             if zero_d.any():
                 logger.warning(
-                    "Layer %s NHDZ: %d cells have zero thickness. Setting kh to NaN.",
+                    "Layer %s NHDZ: %d cells have zero thickness. Setting kh to fill_value_kh=%.2f.",
                     name,
                     zero_d.sum(),
+                    fill_value_kh,
                 )
             safe_d = np.where(zero_d, np.nan, d_nhdz)
-            data[i, is_nhdz] = kd_nhdz / safe_d
+            kh_values = kd_nhdz / safe_d
+            kh_values[zero_d] = fill_value_kh
+            data[i, is_nhdz] = kh_values
 
             # Bergen area: kh from vertical resistance (c) polygon data
             is_bergen = mask & ~is_within_nhdz_bound
@@ -591,12 +587,15 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0):
             zero_d = np.isclose(d_bergen, 0.0)
             if zero_d.any():
                 logger.warning(
-                    "Layer %s Bergen: %d cells have zero thickness. Setting kh to NaN.",
+                    "Layer %s Bergen: %d cells have zero thickness. Setting kh to fill_value_kh=%.2f.",
                     name,
                     zero_d.sum(),
+                    fill_value_kh,
                 )
             safe_d = np.where(zero_d, np.nan, d_bergen)
-            data[i, is_bergen] = safe_d * anisotropy * inv_c
+            kh_values = safe_d * anisotropy * inv_c
+            kh_values[zero_d] = fill_value_kh
+            data[i, is_bergen] = kh_values
         elif name in {"S11", "S32"}:
             fp = data_path_2024 / "conductances" / f"C{name}_combined.geojson"
             gdf = gpd.read_file(fp, driver="GeoJSON")
@@ -610,12 +609,15 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0):
             zero_d = np.isclose(d, 0.0)
             if zero_d[mask].any():
                 logger.warning(
-                    "Layer %s: %d cells have zero thickness. Setting kh to NaN.",
+                    "Layer %s: %d cells have zero thickness. Setting kh to fill_value_kh=%.2f.",
                     name,
                     zero_d[mask].sum(),
+                    fill_value_kh,
                 )
             safe_d = np.where(zero_d, np.nan, d)
-            data[i, mask] = (safe_d * anisotropy * inv_c)[mask]
+            kh_values = safe_d * anisotropy * inv_c
+            kh_values[zero_d] = fill_value_kh
+            data[i, mask] = kh_values[mask]
         else:
             msg = f"Unknown layer name {name} for assigning kh"
             raise ValueError(msg)
@@ -629,7 +631,7 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0):
     )
 
 
-def get_kv(*, ds, data_path_2024, kh, thickness, anisotropy=10.0):
+def get_kv(*, ds, data_path_2024, kh, thickness, anisotropy=10.0, fill_value_kv=0.1):
     """Compute vertical hydraulic conductivity (kv) for all model layers.
 
     Assigns kv values to each grid cell per layer:
@@ -654,6 +656,9 @@ def get_kv(*, ds, data_path_2024, kh, thickness, anisotropy=10.0):
     anisotropy : float, optional
         Ratio of horizontal to vertical hydraulic conductivity (kh / kv).
         Used for W-layers. Default is 10.0.
+    fill_value_kv : float, optional
+        Fill value for kv in cells with zero layer thickness (m/day).
+        These cells will be set inactive downstream. Default is 0.1.
 
     Returns
     -------
@@ -681,12 +686,15 @@ def get_kv(*, ds, data_path_2024, kh, thickness, anisotropy=10.0):
             zero_d = np.isclose(d, 0.0)
             if zero_d[mask].any():
                 logger.warning(
-                    "Layer %s: %d cells have zero thickness. Setting kv to NaN.",
+                    "Layer %s: %d cells have zero thickness. Setting kv to fill_value_kv=%.2f.",
                     name,
                     zero_d[mask].sum(),
+                    fill_value_kv,
                 )
             safe_d = np.where(zero_d, np.nan, d)
-            data[i, mask] = (safe_d * inv_c)[mask]
+            kv_values = safe_d * inv_c
+            kv_values[zero_d] = fill_value_kv
+            data[i, mask] = kv_values[mask]
         else:
             msg = f"Unknown layer name {name} for assigning kv"
             raise ValueError(msg)
