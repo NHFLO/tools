@@ -75,7 +75,7 @@ def get_pwn_layer_model(
     fix_min_layer_thickness=True,
     fill_value_kh=5.0,
     fill_value_kv=1.0,
-    split_method="equal",
+    split_method="nearest_ratio",
 ):
     """Merge PWN layer model with the REGISII layer model.
 
