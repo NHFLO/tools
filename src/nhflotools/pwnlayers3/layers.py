@@ -75,6 +75,7 @@ def get_pwn_layer_model(
     fix_min_layer_thickness=True,
     fill_value_kh=5.0,
     fill_value_kv=1.0,
+    split_method="equal",
 ):
     """Merge PWN layer model with the REGISII layer model.
 
@@ -121,6 +122,12 @@ def get_pwn_layer_model(
     fill_value_kv : float, optional
         Fill value for kv in cells not covered by either model (m/day).
         Default is 1.0.
+    split_method : {'equal', 'nearest_ratio'}, optional
+        How to distribute thickness among sublayers created by splitting.
+        If 'equal' (default), sublayers receive equal thickness.  If
+        'nearest_ratio', thickness ratios are taken from the model that has
+        actual sublayer data, extrapolated via nearest-neighbor to cells
+        where that model is absent.
 
     Returns
     -------
@@ -175,6 +182,7 @@ def get_pwn_layer_model(
         df_koppeltabel=df_koppeltabel,
         koppeltabel_header_regis="Regis II v2.2",
         koppeltabel_header_other="ASSUMPTION1",
+        split_method=split_method,
     )
     if fix_min_layer_thickness:
         layer_model_pwn_regis["botm"] = fix_missings_botms_and_min_layer_thickness(
