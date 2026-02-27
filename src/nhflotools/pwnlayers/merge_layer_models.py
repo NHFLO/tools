@@ -9,6 +9,11 @@ from nhflotools.pwnlayers.utils import fix_missings_botms_and_min_layer_thicknes
 
 logger = logging.getLogger(__name__)
 
+# Category constants for the combined layer model
+CAT_REGIS = 1
+CAT_OTHER = 2
+CAT_TRANSITION = 3
+
 translate_triwaco_bergen_names_to_index = {
     "W11": 0,
     "S11": 1,
@@ -144,7 +149,7 @@ def combine_two_layer_models(
     """
     logger.info("Combining two layer models")
 
-    # Validate input datasets
+    # ── Phase 1: Prepare inputs ──────────────────────────────────────────
     _validate_inputs(
         layer_model_regis,
         layer_model_other,
@@ -160,48 +165,53 @@ def combine_two_layer_models(
     layer_model_regis["top"] = top.copy()
     layer_model_other["top"] = top.copy()
 
-    dfk = df_koppeltabel.copy()
-    dfk_upper = dfk[~dfk[koppeltabel_header_other].isna()]
-    dfk_lower = dfk[dfk[koppeltabel_header_other].isna()]
+    koppeltabel = df_koppeltabel.copy()
+    # kt_coupled: rows where both REGIS and OTHER are defined (layers to merge)
+    kt_coupled = koppeltabel[~koppeltabel[koppeltabel_header_other].isna()]
+    # kt_uncoupled: rows where OTHER is NaN (deep REGIS-only layers)
+    kt_uncoupled = koppeltabel[koppeltabel[koppeltabel_header_other].isna()]
 
-    # Fix minimum layer thickness in REGIS and OTHER. Still required to fix transition zone.
+    # Fix minimum layer thickness and fill NaN botms in both models
     layer_model_regis["botm"] = fix_missings_botms_and_min_layer_thickness(top=top, botm=layer_model_regis["botm"])
     layer_model_other["botm"] = fix_missings_botms_and_min_layer_thickness(top=top, botm=layer_model_other["botm"])
 
-    # Apply mask to other layer model
+    # Apply mask: set OTHER model values to NaN outside the valid region
     for var in ["kh", "kv", "botm"]:
         layer_model_other[var] = layer_model_other[var].where(mask_model_other[var], np.nan)
         assert (layer_model_other[var].notnull() == mask_model_other[var]).all(), (
             f"There were nan values present in {var} in cells that should be valid"
         )
 
-    # Basename can occur multiple times if previously combined
-    basenames_regis = [layer.split("_")[0] for layer in layer_model_regis.layer.values]
+    # Filter koppeltabel to only include REGIS layers present in the model
+    # (basenames handle layers that may already have _N suffixes from a prior merge)
+    regis_basenames = [layer.split("_")[0] for layer in layer_model_regis.layer.values]
+    kt_coupled = kt_coupled[kt_coupled[koppeltabel_header_regis].isin(regis_basenames)]
 
-    """All the layers that are being coupled"""
-    # Only select part of the table that appears in the two layer models
-    dfk_mask = dfk_upper[koppeltabel_header_regis].isin(basenames_regis)
-    dfk_upper = dfk_upper[dfk_mask]
-
-    # Split both layer models with evenly-split thickness
+    # ── Phase 2: Split layers to create 1:1 correspondence ──────────────
+    # Each REGIS layer that maps to N OTHER layers is split into N sublayers
+    # (and vice versa).  Initially all splits use equal thickness.
     split_dict_regis = (
-        dfk_upper.groupby(koppeltabel_header_regis, sort=False)[koppeltabel_header_regis].count().to_dict()
+        kt_coupled.groupby(koppeltabel_header_regis, sort=False)[koppeltabel_header_regis].count().to_dict()
     )
     split_dict_other = (
-        dfk_upper.groupby(koppeltabel_header_other, sort=False)[koppeltabel_header_other].count().to_dict()
+        kt_coupled.groupby(koppeltabel_header_other, sort=False)[koppeltabel_header_other].count().to_dict()
     )
 
     layer_model_regis_split = nlmod.dims.layers.split_layers_ds(
         ds=layer_model_regis.sel(layer=list(split_dict_regis.keys())),
         split_dict=split_dict_regis,
     )
-    layer_names = layer_model_regis_split.layer.values
+    # Central invariant: kt_coupled rows and split_layer_names are in the same
+    # order (both determined by koppeltabel row order with sort=False).  This
+    # 1:1 correspondence is used by assign_coords and ratio adjustment below.
+    split_layer_names = layer_model_regis_split.layer.values
     layer_model_other_split = nlmod.dims.layers.split_layers_ds(
         ds=layer_model_other.sel(layer=list(split_dict_other.keys())),
         split_dict=split_dict_other,
-    ).assign_coords(layer=layer_names)
+    ).assign_coords(layer=split_layer_names)
 
-    # Optionally adjust sublayer thicknesses using nearest-ratio method
+    # Optionally redistribute sublayer thicknesses using ratios from the
+    # model that has actual sublayer data (instead of equal thickness)
     if split_method == "nearest_ratio":
         _adjust_botm_with_nearest_ratios(
             layer_model_regis_split=layer_model_regis_split,
@@ -210,7 +220,7 @@ def combine_two_layer_models(
             layer_model_other=layer_model_other,
             mask_model_other=mask_model_other,
             top=top,
-            dfk_upper=dfk_upper,
+            kt_coupled=kt_coupled,
             koppeltabel_header_regis=koppeltabel_header_regis,
             koppeltabel_header_other=koppeltabel_header_other,
         )
@@ -218,74 +228,68 @@ def combine_two_layer_models(
         msg = f"Unknown split_method: {split_method}. Use 'equal' or 'nearest_ratio'."
         raise ValueError(msg)
 
-    mask_model_other_split = mask_model_other.sel(layer=dfk_upper[koppeltabel_header_other].values).assign_coords(
-        layer=layer_names
+    # ── Phase 3: Categorize cells ────────────────────────────────────────
+    # Expand mask and transition to the split layer names
+    mask_model_other_split = mask_model_other.sel(layer=kt_coupled[koppeltabel_header_other].values).assign_coords(
+        layer=split_layer_names
     )
-    transition_model_split = transition_model.sel(layer=dfk_upper[koppeltabel_header_other].values).assign_coords(
-        layer=layer_names
+    transition_model_split = transition_model.sel(layer=kt_coupled[koppeltabel_header_other].values).assign_coords(
+        layer=split_layer_names
     )
 
-    # Categorize layers
-    # 1: regis
-    # 2: other
-    # 3: transition
-    cat = xr.ones_like(layer_model_regis_split[["kh", "kv", "botm"]], dtype=int)
-    cat = cat.where(~mask_model_other_split[["kh", "kv", "botm"]], other=2)
-    cat = cat.where(~transition_model_split[["kh", "kv", "botm"]], other=3)
+    # Assign category per cell: 1=REGIS, 2=OTHER, 3=transition
+    category = xr.ones_like(layer_model_regis_split[["kh", "kv", "botm"]], dtype=int)
+    category = category.where(~mask_model_other_split[["kh", "kv", "botm"]], other=CAT_OTHER)
+    category = category.where(~transition_model_split[["kh", "kv", "botm"]], other=CAT_TRANSITION)
 
-    # Prepare out
-    # 1. layer_model_regis_split
-    # 2. layer_model_other_split
-    # 3. interpolation of transition zone
-    out = xr.where(
-        cat == 1,
+    # ── Phase 4: Combine and interpolate transition zone ─────────────────
+    # Use REGIS values where category=1, OTHER where category=2.
+    # Transition zone (category=3) has NaN from OTHER and is interpolated.
+    combined = xr.where(
+        category == CAT_REGIS,
         layer_model_regis_split[["kh", "kv", "botm"]].copy(),
-        layer_model_other_split[["kh", "kv", "botm"]].copy(),  # has nan's in the transition zone
+        layer_model_other_split[["kh", "kv", "botm"]].copy(),
     )
-
-    # Add top and remaining metadata
-    out["top"] = top
+    combined["top"] = top
 
     if transition_method == "linear":
-        # Linearly interpolate transition zone inplace
-        _interpolate_ds(out, isvalid=cat != 3, ismissing=cat == 3, method="linear")
+        _interpolate_ds(
+            combined, isvalid=category != CAT_TRANSITION, ismissing=category == CAT_TRANSITION, method="linear"
+        )
     else:
         msg = f"Unknown transition method: {transition_method}. Use 'linear'."
         raise ValueError(msg)
 
-    """All the layers that are not being coupled are added to the out dataset"""
-    # Add the layers that are not being coupled
-    layer_model_regis_not_coupled = layer_model_regis.sel(layer=dfk_lower[koppeltabel_header_regis].values)
-    out_upper_lower = xr.concat(
+    # ── Phase 5: Append uncoupled (deep) REGIS-only layers ───────────────
+    regis_uncoupled = layer_model_regis.sel(layer=kt_uncoupled[koppeltabel_header_regis].values)
+    result = xr.concat(
         [
-            out[["kh", "kv", "botm"]],
-            layer_model_regis_not_coupled[["kh", "kv", "botm"]].assign_coords(
-                layer=layer_model_regis_not_coupled.layer.values
-            ),
+            combined[["kh", "kv", "botm"]],
+            regis_uncoupled[["kh", "kv", "botm"]].assign_coords(layer=regis_uncoupled.layer.values),
         ],
         dim="layer",
     )
-    out_upper_lower["top"] = top
+    result["top"] = top
 
-    # The botm of the upper layermodel may cross the botm of the first layers opf the lower layermodel.
-    out_upper_lower["botm"] = fix_missings_botms_and_min_layer_thickness(top=top, botm=out_upper_lower["botm"])
+    # The coupled layers' botm may cross the botm of the first uncoupled layers
+    result["botm"] = fix_missings_botms_and_min_layer_thickness(top=top, botm=result["botm"])
 
-    cat_upper_lower = xr.concat(
+    result_category = xr.concat(
         [
-            cat[["kh", "kv", "botm"]],
-            xr.ones_like(layer_model_regis_not_coupled[["kh", "kv", "botm"]], dtype=int).assign_coords(
-                layer=layer_model_regis_not_coupled.layer.values
+            category[["kh", "kv", "botm"]],
+            xr.ones_like(regis_uncoupled[["kh", "kv", "botm"]], dtype=int).assign_coords(
+                layer=regis_uncoupled.layer.values
             ),
         ],
         dim="layer",
     )
     if remove_nan_layers:
-        out_upper_lower = nlmod.dims.layers.remove_inactive_layers(out_upper_lower)
-        cat_upper_lower = cat_upper_lower.sel(layer=out_upper_lower.layer.values)
+        result = nlmod.dims.layers.remove_inactive_layers(result)
+        result_category = result_category.sel(layer=result.layer.values)
 
-    out_upper_lower.attrs = layer_model_regis.attrs
+    result.attrs = layer_model_regis.attrs
 
-    return out_upper_lower, cat_upper_lower
+    return result, result_category
 
 
 def _interpolate_ds(ds, isvalid, ismissing, method="linear"):
@@ -397,13 +401,17 @@ def _compute_thickness_ratios(ds_source, group_source_names, mask_valid):
     assigned.  Cells where ``mask_valid`` is False are filled via
     nearest-neighbor interpolation from the valid cells.
 
+    Only the group layers (plus the layer immediately above for the group
+    top) are used — thickness is **not** computed for the full source model.
+
     Parameters
     ----------
     ds_source : xr.Dataset
         Source dataset with actual sublayer data. Must contain 'botm' and
         'top'.
     group_source_names : list of str
-        Layer names in ``ds_source`` for this group.
+        Layer names in ``ds_source`` for this group.  Must be consecutive
+        layers within the source model.
     mask_valid : xr.DataArray
         Boolean mask with dimension ``icell2d``.  True where the source data
         is valid for **all** layers in the group.
@@ -414,13 +422,24 @@ def _compute_thickness_ratios(ds_source, group_source_names, mask_valid):
         Thickness ratios with dims ``(layer, icell2d)``.  The layer
         coordinate uses ``group_source_names``.  Ratios sum to 1 per cell.
     """
-    thickness_all = nlmod.dims.layers.calculate_thickness(ds_source)
-    thickness_group = thickness_all.sel(layer=group_source_names)
-
-    total = thickness_group.sum(dim="layer")
     n = len(group_source_names)
 
-    # Compute ratios; fall back to equal ratios where total thickness is zero
+    # Build a mini-dataset with only the group layers and the correct group
+    # top, so thickness computation only depends on group-internal botm values
+    # (plus the botm of the layer immediately above for the group top).
+    all_layers = list(ds_source.layer.values)
+    first_idx = all_layers.index(group_source_names[0])
+    group_top = ds_source["top"] if first_idx == 0 else ds_source["botm"].sel(layer=all_layers[first_idx - 1])
+
+    ds_group = ds_source[["botm"]].sel(layer=group_source_names).copy()
+    ds_group["top"] = group_top
+    thickness_group = nlmod.dims.layers.calculate_thickness(ds_group)
+
+    total = thickness_group.sum(dim="layer")
+
+    # Compute ratios.  Where total > 0 use actual ratios; where total is
+    # zero or NaN (e.g. group_top is NaN outside mask) fall back to 1/N.
+    # Note: NaN > 0 evaluates to False, so NaN cells also get 1/N.
     safe_total = xr.where(total > 0, total, 1.0)
     ratios = thickness_group / safe_total
     ratios = xr.where(total > 0, ratios, 1.0 / n)
@@ -451,6 +470,11 @@ def _compute_thickness_ratios(ds_source, group_source_names, mask_valid):
                     ismissing=ismissing,
                     method="nearest",
                 )
+
+    # Normalize so ratios sum to exactly 1 per cell (guards against floating-
+    # point drift if interpolation method is changed in the future).
+    ratio_sum = ratios.sum(dim="layer")
+    ratios /= xr.where(ratio_sum > 0, ratio_sum, 1.0)
 
     return ratios
 
@@ -504,16 +528,24 @@ def _adjust_botm_with_nearest_ratios(
     layer_model_other,
     mask_model_other,
     top,
-    dfk_upper,
+    kt_coupled,
     koppeltabel_header_regis,
     koppeltabel_header_other,
 ):
     """Adjust botm of split layers using nearest-neighbor thickness ratios.
 
-    After the initial equal-thickness split, this function redistributes
-    sublayer thicknesses according to ratios derived from the model that has
-    actual sublayer data.  Ratios are extrapolated to cells without source
-    data via nearest-neighbor interpolation.
+    For each split group, compute thickness ratios from the model that has
+    actual sublayer data and redistribute the equal-split botm accordingly.
+
+    Two cases:
+
+    - **REGIS split** (1 REGIS -> N OTHER, e.g. HLc -> W11..S13): ratios
+      come from the OTHER model, extrapolated via nearest to cells outside
+      the OTHER mask.
+    - **OTHER split** (M REGIS -> 1 OTHER, e.g. BXz1..EEz1 -> W21): ratios
+      come from the REGIS model (which covers all cells).
+
+    Groups where REGIS and OTHER are 1:1 are skipped (no split to adjust).
 
     Modifies ``layer_model_regis_split`` and ``layer_model_other_split``
     **in-place**.
@@ -533,7 +565,7 @@ def _adjust_botm_with_nearest_ratios(
         Boolean mask indicating valid cells in the OTHER model.
     top : xr.DataArray
         Model top elevation.
-    dfk_upper : pandas.DataFrame
+    kt_coupled : pandas.DataFrame
         Koppeltabel rows for coupled layers (no NaN in the OTHER column).
     koppeltabel_header_regis : str
         Column name for REGIS layer names in the koppeltabel.
@@ -542,19 +574,25 @@ def _adjust_botm_with_nearest_ratios(
     """
     split_layer_names = list(layer_model_regis_split.layer.values)
 
-    # Map koppeltabel rows to split layer names
-    dfk = dfk_upper.copy()
-    dfk["split_layer"] = split_layer_names
+    # The 1:1 correspondence between kt_coupled rows and split layer names
+    # is the central invariant: both are ordered by koppeltabel row order
+    # (groupby uses sort=False), so row i maps to split_layer_names[i].
+    if len(kt_coupled) != len(split_layer_names):
+        msg = f"Koppeltabel row count ({len(kt_coupled)}) does not match split layer count ({len(split_layer_names)})"
+        raise ValueError(msg)
 
-    # --- Groups where REGIS is split (1 REGIS → N OTHER) ---
-    for regis_name, group_df in dfk.groupby(koppeltabel_header_regis, sort=False):
+    kt = kt_coupled.copy()
+    kt["split_layer"] = split_layer_names
+
+    # ── REGIS split groups (1 REGIS → N OTHER) ──
+    for regis_name, group_df in kt.groupby(koppeltabel_header_regis, sort=False):
         if len(group_df) <= 1:
             continue
 
         other_names = list(group_df[koppeltabel_header_other].values)
         target_names = list(group_df["split_layer"].values)
 
-        # Compute ratios from OTHER model (has actual sublayer data)
+        # Use cells where ALL sublayers have valid data for ratio computation
         mask_valid = mask_model_other["botm"].sel(layer=other_names).all(dim="layer")
         ratios = _compute_thickness_ratios(layer_model_other, other_names, mask_valid)
 
@@ -565,15 +603,15 @@ def _adjust_botm_with_nearest_ratios(
             len(target_names),
         )
 
-    # --- Groups where OTHER is split (M REGIS → 1 OTHER) ---
-    for other_name, group_df in dfk.groupby(koppeltabel_header_other, sort=False):
+    # ── OTHER split groups (M REGIS → 1 OTHER) ──
+    for other_name, group_df in kt.groupby(koppeltabel_header_other, sort=False):
         if len(group_df) <= 1:
             continue
 
         regis_names = list(group_df[koppeltabel_header_regis].values)
         target_names = list(group_df["split_layer"].values)
 
-        # Compute ratios from REGIS model (covers all cells)
+        # REGIS covers all cells, so mask_valid is True everywhere
         mask_valid = xr.DataArray(
             np.ones(layer_model_regis.sizes["icell2d"], dtype=bool),
             dims=("icell2d",),
@@ -657,9 +695,9 @@ def _validate_inputs(
     )
 
     # No overlap between mask_model_other and transition_model
-    assert all(
-        (mask_model_other[k].astype(int) + transition_model[k].astype(int) < 2).all() for k in ["kh", "kv", "botm"]
-    ), "mask_model_other and transition_model should not overlap"
+    assert all(~(mask_model_other[k] & transition_model[k]).any() for k in ["kh", "kv", "botm"]), (
+        "mask_model_other and transition_model should not overlap"
+    )
 
     # Check layer names don't contain underscores
     assert (
