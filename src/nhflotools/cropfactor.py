@@ -47,7 +47,7 @@ def apply_cropfactor(ds=None, cropfactor_dir=None, gwf=None, Adjust_for_groundwa
 
     if Adjust_for_groundwaterdepth:
         # Reading the average depth of the groundwater shapefile and interpolating to the grid
-        avg_depth_groundwater_shp = gpd.read_file(avg_depth_groundwater_shp_dir)
+        avg_depth_groundwater_shp = gpd.read_file(Groundwaterdepth)
         grid_avg_depth_groundwater = nlmod.grid.gdf_to_grid(
             avg_depth_groundwater_shp.loc[:, ["diepte_gws", "geometry"]], gwf
         )
