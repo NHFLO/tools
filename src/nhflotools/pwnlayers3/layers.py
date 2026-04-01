@@ -241,6 +241,7 @@ def get_ds(
     fix_min_layer_thickness=True,
     fill_value_kh=5.0,
     fill_value_kv=1.0,
+    return_methods=False,
 ):
     """Compute PWN layer model dataset with mask and transition zone.
 
@@ -270,6 +271,10 @@ def get_ds(
     fill_value_kv : float, optional
         Fill value for kv in cells with zero layer thickness (m/day).
         Default is 0.1.
+    return_methods : bool, optional
+        If True, return an additional xr.Dataset containing integer arrays
+        ``botm_method``, ``kh_method``, and ``kv_method`` that record which
+        computation method determined the value of each cell. Default is False.
 
     Returns
     -------
@@ -279,28 +284,43 @@ def get_ds(
         Boolean mask per variable indicating valid cells.
     transition : xr.Dataset
         Boolean mask per variable indicating transition zone cells.
+    methods : xr.Dataset, optional
+        Only returned when ``return_methods=True``. Contains integer
+        DataArrays ``botm_method``, ``kh_method``, ``kv_method`` with
+        per-cell codes describing the computation method. See the
+        ``flag_meanings`` attribute on each DataArray for descriptions.
     """
     # Compute boundaries and per-layer masks once, pass to sub-functions
     gdf_boundaries = get_gdf_boundaries(data_path_2024)
     isin_bounds = _compute_isin_bounds(ds=ds_regis, gdf_boundaries=gdf_boundaries)
 
-    botm = get_botm(
+    botm_result = get_botm(
         ds=ds_regis,
         data_path_2024=data_path_2024,
         fix_min_layer_thickness=fix_min_layer_thickness,
         top=top,
         isin_bounds=isin_bounds,
+        return_method=return_methods,
     )
+    if return_methods:
+        botm, botm_method = botm_result
+    else:
+        botm = botm_result
     thickness = get_thickness(botm=botm)
-    kh = get_kh(
+    kh_result = get_kh(
         ds=ds_regis,
         data_path_2024=data_path_2024,
         botm=botm,
         anisotropy=anisotropy,
         fill_value_kh=fill_value_kh,
         isin_bounds=isin_bounds,
+        return_method=return_methods,
     )
-    kv = get_kv(
+    if return_methods:
+        kh, kh_method = kh_result
+    else:
+        kh = kh_result
+    kv_result = get_kv(
         ds=ds_regis,
         data_path_2024=data_path_2024,
         kh=kh,
@@ -308,7 +328,12 @@ def get_ds(
         anisotropy=anisotropy,
         fill_value_kv=fill_value_kv,
         isin_bounds=isin_bounds,
+        return_method=return_methods,
     )
+    if return_methods:
+        kv, kv_method = kv_result
+    else:
+        kv = kv_result
 
     ds = xr.Dataset(
         {
@@ -365,6 +390,20 @@ def get_ds(
             msg = f"Overlap between mask and transition for {var}"
             raise ValueError(msg)
 
+    if return_methods:
+        methods = xr.Dataset(
+            {
+                "botm_method": botm_method,
+                "kh_method": kh_method,
+                "kv_method": kv_method,
+            },
+        )
+        return (
+            ds,
+            mask,
+            transition,
+            methods,
+        )
     return (
         ds,
         mask,
@@ -454,7 +493,7 @@ def _isin_bounds_to_da(*, isin_bounds, ds):
     )
 
 
-def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None, isin_bounds=None):
+def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None, isin_bounds=None, return_method=False):
     """Compute bottom elevations for all model layers.
 
     Reads bottom elevation point data from a GeoJSON file and interpolates
@@ -478,12 +517,18 @@ def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None, isin
         Pre-computed boolean array of shape (n_layers, n_cells) from
         ``_compute_isin_bounds``. True where valid data values are expected.
         If None, computed internally.
+    return_method : bool, optional
+        If True, also return an integer DataArray indicating the computation
+        method used per cell. Default is False.
 
     Returns
     -------
-    xr.DataArray
+    botm : xr.DataArray
         Bottom elevations with dimensions (layer, icell2d) in mNAP. Cells
         outside the layer boundary are NaN.
+    botm_method : xr.DataArray, optional
+        Only returned when ``return_method=True``. Integer array (same shape)
+        encoding the method used per cell. See ``flag_meanings`` attribute.
     """
     # TODO: [Edinsi 3.1, p.12] Edinsi notes that depth shapefiles extend west of the coastline
     #   into the North Sea. The nearest-neighbor fallback below may assign inappropriate values
@@ -504,13 +549,21 @@ def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None, isin
     xy_out = np.column_stack((ds.x.values, ds.y.values))
 
     data = np.full((len(layer_names), xy_out.shape[0]), np.nan)
+    if return_method:
+        method_data = np.zeros((len(layer_names), xy_out.shape[0]), dtype=np.int8)
     for i, layer_name in enumerate(layer_names):
         mask = isin_bounds[i]
         values = griddata(xy_in, gdf_botm[layer_name].values, xy_out[mask], method="linear")
         nan_mask = np.isnan(values)
+        if return_method:
+            method_local = np.ones(mask.sum(), dtype=np.int8)  # 1 = linear interpolation
         if nan_mask.any():
             values[nan_mask] = griddata(xy_in, gdf_botm[layer_name].values, xy_out[mask][nan_mask], method="nearest")
+            if return_method:
+                method_local[nan_mask] = 2  # nearest-neighbor fallback
         data[i, mask] = values
+        if return_method:
+            method_data[i, mask] = method_local
 
     botm = xr.DataArray(
         data,
@@ -524,10 +577,40 @@ def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None, isin
         if top is None:
             top = ds.top
 
+        botm_before_fix = botm.copy() if return_method else None
         botm = fix_missings_botms_and_min_layer_thickness(top=top, botm=botm)
+        if return_method:
+            was_null = botm_before_fix.isnull().values
+            now_valid = botm.notnull().values
+            was_shifted = (
+                ~np.isclose(botm_before_fix.values, botm.values, equal_nan=True)
+                & botm_before_fix.notnull().values
+            )
+            method_data[was_null & now_valid] = 3  # forward-fill from layer above
+            method_data[was_shifted] = 4  # shifted for minimum thickness
 
     # Clip to boundary mask (fix_min_layer_thickness ffill may extend beyond boundaries)
     botm = botm.where(isin_bounds)
+    if return_method:
+        method_data[~isin_bounds] = 0
+        method_da = xr.DataArray(
+            method_data,
+            dims=("layer", "icell2d"),
+            coords={"layer": layer_names, "icell2d": ds.icell2d},
+            name="botm_method",
+            attrs={
+                "long_name": "Method used to compute botm",
+                "flag_values": [0, 1, 2, 3, 4],
+                "flag_meanings": (
+                    "0: no_data (outside boundary polygon); "
+                    "1: linear_interpolation (griddata linear from botm.geojson point data); "
+                    "2: nearest_interpolation (griddata nearest fallback where linear produced NaN); "
+                    "3: forward_fill (missing botm filled from layer above by fix_missings_botms_and_min_layer_thickness); "
+                    "4: shifted_for_min_thickness (botm shifted downward to enforce monotonically decreasing sequence)"
+                ),
+            },
+        )
+        return botm, method_da
     return botm
 
 
@@ -592,7 +675,7 @@ def _guard_zero_thickness(values, thickness, fill_value, layer_name, region=""):
     return values
 
 
-def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0, fill_value_kh=5.0, isin_bounds=None):
+def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0, fill_value_kh=5.0, isin_bounds=None, return_method=False):
     """Compute horizontal hydraulic conductivity (kh) for all model layers.
 
     Assigns kh values to each grid cell per layer, using different data sources
@@ -632,12 +715,18 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0, fill_value_kh=5.0,
         Pre-computed boolean array of shape (n_layers, n_cells) from
         ``_compute_isin_bounds``. True where valid data values are expected.
         If None, computed internally.
+    return_method : bool, optional
+        If True, also return an integer DataArray indicating the computation
+        method used per cell. Default is False.
 
     Returns
     -------
-    xr.DataArray
+    kh : xr.DataArray
         Horizontal hydraulic conductivity with dimensions (layer, icell2d)
         in m/day. Cells outside the defined boundaries are NaN.
+    kh_method : xr.DataArray, optional
+        Only returned when ``return_method=True``. Integer array (same shape)
+        encoding the method used per cell. See ``flag_meanings`` attribute.
     """
     if botm is None:
         botm = get_botm(ds=ds, data_path_2024=data_path_2024)
@@ -653,6 +742,8 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0, fill_value_kh=5.0,
         isin_bounds = _compute_isin_bounds(ds=ds, gdf_boundaries=gdf_boundaries)
 
     data = np.full((len(layer_names), ds.icell2d.size), np.nan)
+    if return_method:
+        method_data = np.zeros((len(layer_names), ds.icell2d.size), dtype=np.int8)
 
     for i, name in enumerate(layer_names):
         mask = isin_bounds[i]
@@ -661,6 +752,8 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0, fill_value_kh=5.0,
             gdf = gpd.read_file(fp, driver="GeoJSON")
             values = nlmod.dims.gdf_to_da(gdf=gdf, ds=ds, column="VALUE", agg_method="area_weighted").values
             data[i, mask] = values[mask]
+            if return_method:
+                method_data[i, mask] = 1
         elif name in {"S12", "S13", "S21", "S22", "S31"}:
             # NHDZ area: kh from transmissivity (KD) point data
             is_nhdz = mask & is_within_nhdz_bound
@@ -670,11 +763,18 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0, fill_value_kh=5.0,
             d_nhdz = thickness.sel(layer=name).isel(icell2d=is_nhdz).values
             kd_nhdz = griddata(xy_in, gdf["VALUE"].values, xy_out[is_nhdz], method="linear")
             nan_mask = np.isnan(kd_nhdz)
+            if return_method:
+                method_nhdz = np.full(is_nhdz.sum(), 2, dtype=np.int8)  # linear KD interp
             if nan_mask.any():
                 kd_nhdz[nan_mask] = griddata(xy_in, gdf["VALUE"].values, xy_out[is_nhdz][nan_mask], method="nearest")
+                if return_method:
+                    method_nhdz[nan_mask] = 3  # nearest KD fallback
             safe_d = np.where(np.isclose(d_nhdz, 0.0), np.nan, d_nhdz)
             kh_values = kd_nhdz / safe_d
             data[i, is_nhdz] = _guard_zero_thickness(kh_values, d_nhdz, fill_value_kh, name, "NHDZ")
+            if return_method:
+                method_nhdz[np.isclose(d_nhdz, 0.0)] = 6  # fill value
+                method_data[i, is_nhdz] = method_nhdz
 
             # Bergen area: kh from vertical resistance (c) polygon data
             is_bergen = mask & ~is_within_nhdz_bound
@@ -692,6 +792,10 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0, fill_value_kh=5.0,
             safe_d = np.where(np.isclose(d_bergen, 0.0), np.nan, d_bergen)
             kh_values = safe_d * anisotropy * inv_c
             data[i, is_bergen] = _guard_zero_thickness(kh_values, d_bergen, fill_value_kh, name, "Bergen")
+            if return_method:
+                method_bergen = np.full(is_bergen.sum(), 4, dtype=np.int8)  # Bergen c->kh
+                method_bergen[np.isclose(d_bergen, 0.0)] = 6  # fill value
+                method_data[i, is_bergen] = method_bergen
         elif name in {"S11", "S32"}:
             fp = data_path_2024 / "conductances" / f"C{name}_combined.geojson"
             gdf = gpd.read_file(fp, driver="GeoJSON")
@@ -706,20 +810,46 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0, fill_value_kh=5.0,
             kh_values = safe_d * anisotropy * inv_c
             kh_values = _guard_zero_thickness(kh_values, d, fill_value_kh, name)
             data[i, mask] = kh_values[mask]
+            if return_method:
+                method_local = np.full(d.shape, 5, dtype=np.int8)  # S11/S32 c->kh full extent
+                method_local[np.isclose(d, 0.0)] = 6  # fill value
+                method_data[i, mask] = method_local[mask]
         else:
             msg = f"Unknown layer name {name} for assigning kh"
             raise ValueError(msg)
 
-    return xr.DataArray(
+    kh_da = xr.DataArray(
         data,
         dims=("layer", "icell2d"),
         coords={"layer": layer_names, "icell2d": ds.icell2d},
         name="kh",
         attrs={"units": "m/day", "long_name": "Horizontal hydraulic conductivity"},
     )
+    if return_method:
+        method_da = xr.DataArray(
+            method_data,
+            dims=("layer", "icell2d"),
+            coords={"layer": layer_names, "icell2d": ds.icell2d},
+            name="kh_method",
+            attrs={
+                "long_name": "Method used to compute kh",
+                "flag_values": [0, 1, 2, 3, 4, 5, 6],
+                "flag_meanings": (
+                    "0: no_data (outside boundary polygon); "
+                    "1: W_layer_polygon_kh (direct kh from area-weighted K polygon data); "
+                    "2: S_layer_NHDZ_KD_linear (kh = KD/d, KD from linear interpolation of point data); "
+                    "3: S_layer_NHDZ_KD_nearest (kh = KD/d, KD from nearest-neighbor interpolation fallback); "
+                    "4: S_layer_Bergen_c_to_kh (kh = d*anisotropy/c, c from harmonic area-weighted polygon data); "
+                    "5: S_layer_c_to_kh (kh = d*anisotropy/c, c from harmonic area-weighted polygon data, full extent); "
+                    "6: fill_value (zero-thickness cell, set to fill_value_kh)"
+                ),
+            },
+        )
+        return kh_da, method_da
+    return kh_da
 
 
-def get_kv(*, ds, data_path_2024, kh, thickness, anisotropy=10.0, fill_value_kv=1.0, isin_bounds=None):
+def get_kv(*, ds, data_path_2024, kh, thickness, anisotropy=10.0, fill_value_kv=1.0, isin_bounds=None, return_method=False):
     """Compute vertical hydraulic conductivity (kv) for all model layers.
 
     Assigns kv values to each grid cell per layer:
@@ -751,23 +881,33 @@ def get_kv(*, ds, data_path_2024, kh, thickness, anisotropy=10.0, fill_value_kv=
         Pre-computed boolean array of shape (n_layers, n_cells) from
         ``_compute_isin_bounds``. True where valid data values are expected.
         If None, computed internally.
+    return_method : bool, optional
+        If True, also return an integer DataArray indicating the computation
+        method used per cell. Default is False.
 
     Returns
     -------
-    xr.DataArray
+    kv : xr.DataArray
         Vertical hydraulic conductivity with dimensions (layer, icell2d)
         in m/day.
+    kv_method : xr.DataArray, optional
+        Only returned when ``return_method=True``. Integer array (same shape)
+        encoding the method used per cell. See ``flag_meanings`` attribute.
     """
     if isin_bounds is None:
         gdf_boundaries = get_gdf_boundaries(data_path_2024)
         isin_bounds = _compute_isin_bounds(ds=ds, gdf_boundaries=gdf_boundaries)
 
     data = np.full((len(layer_names), ds.icell2d.size), np.nan)
+    if return_method:
+        method_data = np.zeros((len(layer_names), ds.icell2d.size), dtype=np.int8)
 
     for i, name in enumerate(layer_names):
         mask = isin_bounds[i]
         if name[0] == "W":
             data[i, mask] = (kh.sel(layer=name) / anisotropy).values[mask]
+            if return_method:
+                method_data[i, mask] = 1
         elif name[0] == "S":
             fp = data_path_2024 / "conductances" / f"C{name}_combined.geojson"
             gdf = gpd.read_file(fp, driver="GeoJSON")
@@ -782,17 +922,40 @@ def get_kv(*, ds, data_path_2024, kh, thickness, anisotropy=10.0, fill_value_kv=
             kv_values = safe_d * inv_c
             kv_values = _guard_zero_thickness(kv_values, d, fill_value_kv, name)
             data[i, mask] = kv_values[mask]
+            if return_method:
+                method_local = np.full(d.shape, 2, dtype=np.int8)  # kv = d / c
+                method_local[np.isclose(d, 0.0)] = 3  # fill value
+                method_data[i, mask] = method_local[mask]
         else:
             msg = f"Unknown layer name {name} for assigning kv"
             raise ValueError(msg)
 
-    return xr.DataArray(
+    kv_da = xr.DataArray(
         data,
         dims=("layer", "icell2d"),
         coords={"layer": layer_names, "icell2d": ds.icell2d},
         name="kv",
         attrs={"units": "m/day", "long_name": "Vertical hydraulic conductivity"},
     )
+    if return_method:
+        method_da = xr.DataArray(
+            method_data,
+            dims=("layer", "icell2d"),
+            coords={"layer": layer_names, "icell2d": ds.icell2d},
+            name="kv_method",
+            attrs={
+                "long_name": "Method used to compute kv",
+                "flag_values": [0, 1, 2, 3],
+                "flag_meanings": (
+                    "0: no_data (outside boundary polygon); "
+                    "1: W_layer_kh_anisotropy (kv = kh/anisotropy); "
+                    "2: S_layer_d_over_c (kv = d/c, c from harmonic area-weighted polygon data); "
+                    "3: fill_value (zero-thickness cell, set to fill_value_kv)"
+                ),
+            },
+        )
+        return kv_da, method_da
+    return kv_da
 
 
 def get_mask(*, ds, data_path_2024):
