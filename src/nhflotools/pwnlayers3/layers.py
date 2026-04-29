@@ -76,6 +76,7 @@ def get_pwn_layer_model(
     fill_value_kh=5.0,
     fill_value_kv=1.0,
     split_method="nearest_ratio",
+    return_diagnostics=False,
 ):
     """Merge PWN layer model with the REGISII layer model.
 
@@ -128,12 +129,20 @@ def get_pwn_layer_model(
         'nearest_ratio', thickness ratios are taken from the model that has
         actual sublayer data, extrapolated via nearest-neighbor to cells
         where that model is absent.
+    return_diagnostics : bool, optional
+        If True, include diagnostic variables in the returned Dataset:
+        ``cat_botm``, ``cat_kh``, ``cat_kv`` (int, dims layer x icell2d,
+        values 1=REGIS 2=PWN 3=Transition), ``botm_pwn`` (float, dims
+        layer_pwn x icell2d), ``botm_method``, ``kh_method``,
+        ``kv_method`` (int, dims layer_pwn x icell2d). Default is False.
 
     Returns
     -------
     xr.Dataset
         Merged dataset with variables 'kh', 'kv', 'botm', 'top', 'area',
-        'xv', 'yv', 'icvert', and 'idomain'.
+        'xv', 'yv', 'icvert', and 'idomain'. When ``return_diagnostics``
+        is True, also contains ``cat_botm``, ``cat_kh``, ``cat_kv``,
+        ``botm_pwn``, ``botm_method``, ``kh_method``, and ``kv_method``.
     """
     if (ds_regis.layer != nlmod.read.regis.get_layer_names()).any():
         msg = "All REGIS layers should be present in `ds_regis`. Use `get_regis(.., remove_nan_layers=False)`."
@@ -157,7 +166,7 @@ def get_pwn_layer_model(
     df_koppeltabel = pd.read_csv(fname_koppeltabel, skiprows=0, index_col=0)
 
     # Get PWN layer models
-    ds_pwn, mask_pwn, transition_pwn = get_ds(
+    get_ds_result = get_ds(
         ds_regis=ds_regis,
         data_path_2024=data_path_2024,
         top=top,
@@ -166,14 +175,19 @@ def get_pwn_layer_model(
         fix_min_layer_thickness=fix_min_layer_thickness,
         fill_value_kh=fill_value_kh,
         fill_value_kv=fill_value_kv,
+        return_methods=return_diagnostics,
     )
+    if return_diagnostics:
+        ds_pwn, mask_pwn, transition_pwn, method_ds = get_ds_result
+    else:
+        ds_pwn, mask_pwn, transition_pwn = get_ds_result
     ds_pwn_thickness = nlmod.dims.layers.calculate_thickness(ds_pwn)
     if (ds_pwn_thickness < 0.0).any():
         msg = "PWN layer thickness should be positive"
         raise ValueError(msg)
 
     # Combine PWN layer model with REGIS layer model
-    layer_model_pwn_regis, _ = combine_two_layer_models(
+    layer_model_pwn_regis, cat = combine_two_layer_models(
         layer_model_regis=layer_model_regis,
         layer_model_other=ds_pwn[["botm", "kh", "kv"]],
         mask_model_other=mask_pwn[["botm", "kh", "kv"]],
@@ -210,18 +224,31 @@ def get_pwn_layer_model(
     # Get idomain based on layer thickness
     idomain = nlmod.dims.layers.get_idomain(layer_model_active)
 
+    data_vars = {
+        "kh": layer_model_active["kh"],
+        "kv": layer_model_active["kv"],
+        "botm": layer_model_active["botm"],
+        "top": layer_model_active["top"],
+        "area": ds_regis.get("area", nlmod.dims.get_area(ds_regis)),
+        "xv": ds_regis["xv"],
+        "yv": ds_regis["yv"],
+        "icvert": ds_regis["icvert"],
+        "idomain": idomain,
+    }
+    if return_diagnostics:
+        # Category arrays share the merged layer dim
+        cat = cat.sel(layer=layer_model_active.layer.values)
+        data_vars["cat_botm"] = cat["botm"]
+        data_vars["cat_kh"] = cat["kh"]
+        data_vars["cat_kv"] = cat["kv"]
+        # PWN-layer variables use a separate dim to avoid layer name conflicts
+        data_vars["botm_pwn"] = ds_pwn["botm"].rename({"layer": "layer_pwn"})
+        data_vars["botm_method"] = method_ds["botm_method"].rename({"layer": "layer_pwn"})
+        data_vars["kh_method"] = method_ds["kh_method"].rename({"layer": "layer_pwn"})
+        data_vars["kv_method"] = method_ds["kv_method"].rename({"layer": "layer_pwn"})
+
     return xr.Dataset(
-        data_vars={
-            "kh": layer_model_active["kh"],
-            "kv": layer_model_active["kv"],
-            "botm": layer_model_active["botm"],
-            "top": layer_model_active["top"],
-            "area": ds_regis.get("area", nlmod.dims.get_area(ds_regis)),
-            "xv": ds_regis["xv"],
-            "yv": ds_regis["yv"],
-            "icvert": ds_regis["icvert"],
-            "idomain": idomain,
-        },
+        data_vars=data_vars,
         coords={
             "x": layer_model_active.coords["x"],
             "y": layer_model_active.coords["y"],
@@ -553,12 +580,16 @@ def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None, isin
         method_data = np.zeros((len(layer_names), xy_out.shape[0]), dtype=np.int8)
     for i, layer_name in enumerate(layer_names):
         mask = isin_bounds[i]
-        values = griddata(xy_in, gdf_botm[layer_name].values, xy_out[mask], method="linear")
+        src_values = gdf_botm[layer_name].values.astype(float)
+        valid_src = np.isfinite(src_values)
+        values = griddata(xy_in[valid_src], src_values[valid_src], xy_out[mask], method="linear")
         nan_mask = np.isnan(values)
         if return_method:
             method_local = np.ones(mask.sum(), dtype=np.int8)  # 1 = linear interpolation
         if nan_mask.any():
-            values[nan_mask] = griddata(xy_in, gdf_botm[layer_name].values, xy_out[mask][nan_mask], method="nearest")
+            values[nan_mask] = griddata(
+                xy_in[valid_src], src_values[valid_src], xy_out[mask][nan_mask], method="nearest"
+            )
             if return_method:
                 method_local[nan_mask] = 2  # nearest-neighbor fallback
         data[i, mask] = values
@@ -583,8 +614,7 @@ def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None, isin
             was_null = botm_before_fix.isnull().values
             now_valid = botm.notnull().values
             was_shifted = (
-                ~np.isclose(botm_before_fix.values, botm.values, equal_nan=True)
-                & botm_before_fix.notnull().values
+                ~np.isclose(botm_before_fix.values, botm.values, equal_nan=True) & botm_before_fix.notnull().values
             )
             method_data[was_null & now_valid] = 3  # forward-fill from layer above
             method_data[was_shifted] = 4  # shifted for minimum thickness
@@ -849,7 +879,9 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0, fill_value_kh=5.0,
     return kh_da
 
 
-def get_kv(*, ds, data_path_2024, kh, thickness, anisotropy=10.0, fill_value_kv=1.0, isin_bounds=None, return_method=False):
+def get_kv(
+    *, ds, data_path_2024, kh, thickness, anisotropy=10.0, fill_value_kv=1.0, isin_bounds=None, return_method=False
+):
     """Compute vertical hydraulic conductivity (kv) for all model layers.
 
     Assigns kv values to each grid cell per layer:
