@@ -608,12 +608,20 @@ def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None, isin
         attrs={"units": "mNAP", "long_name": "Bottom elevation of model layers with respect to NAP"},
     )
 
+    # Clip to boundary mask before fix so ffill only operates within layer masks
+    botm = botm.where(isin_bounds)
+
     if fix_min_layer_thickness:
         if top is None:
             top = ds.top
 
         botm_before_fix = botm.copy() if return_method else None
         botm = fix_missings_botms_and_min_layer_thickness(top=top, botm=botm)
+        # Re-mask to avoid synthetic fill-from-top outside all layer boundaries
+        any_layer_mask = isin_bounds.any(axis=0)
+        botm = botm.where(any_layer_mask)
+        # Ensure final NaN pattern matches isin_bounds per layer
+        botm = botm.where(isin_bounds)
         if return_method:
             was_null = botm_before_fix.isnull().values
             now_valid = botm.notnull().values
@@ -623,8 +631,6 @@ def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None, isin
             method_data[was_null & now_valid] = 3  # forward-fill from layer above
             method_data[was_shifted] = 4  # shifted for minimum thickness
 
-    # Clip to boundary mask (fix_min_layer_thickness ffill may extend beyond boundaries)
-    botm = botm.where(isin_bounds)
     if return_method:
         method_data[~isin_bounds] = 0
         method_da = xr.DataArray(
