@@ -695,11 +695,11 @@ def _guard_zero_thickness(values, thickness, fill_value, layer_name, region=""):
     np.ndarray
         Values with zero-thickness cells replaced by fill_value.
     """
-    zero_d = np.isclose(thickness, 0.0)
+    zero_d = np.isclose(thickness, 0.0) | ~np.isfinite(thickness)
     if zero_d.any():
         region_str = f" {region}" if region else ""
         logger.warning(
-            "Layer %s%s: %d cells have zero thickness. Setting to fill_value=%.2f.",
+            "Layer %s%s: %d cells have zero or undefined thickness. Setting to fill_value=%.2f.",
             layer_name,
             region_str,
             zero_d.sum(),
