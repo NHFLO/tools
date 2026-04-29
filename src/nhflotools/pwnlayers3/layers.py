@@ -26,6 +26,7 @@ concerns most relevant to *this* module's interpretation of the data:
 
 import logging
 from importlib import metadata
+from pathlib import Path
 
 import geopandas as gpd
 import nlmod
@@ -37,6 +38,7 @@ from nlmod.dims.grid import gdf_to_bool_da
 from packaging import version
 from scipy.interpolate import griddata
 
+from nhflotools.pwnlayers3.bathymetry import open_rws_bathymetry
 from nhflotools.pwnlayers3.merge_layer_models import combine_two_layer_models
 
 logger = logging.getLogger(__name__)
@@ -440,7 +442,6 @@ def get_ds(
 def get_top(
     *,
     ds,
-    replace_surface_water_with_peil=True,
     fill_northsea="bathymetry",
     method_elsewhere="nearest",
     cachedir=None,
@@ -452,8 +453,6 @@ def get_top(
     ----------
     ds : xarray.Dataset
         Dataset containing the model grid.
-    replace_surface_water_with_peil : bool, optional
-        Replace missing values with peil. The default is True.
     fill_northsea : str or float, optional
         Replace missing values with a constant or "bathymetry". The default is "bathymetry".
     method_elsewhere : str, optional
@@ -471,22 +470,11 @@ def get_top(
         raise ValueError(msg)
 
     top = ds["ahn"].copy()
-
-    if replace_surface_water_with_peil:
-        gdf_surface_water = nlmod.read.rws.get_gdf_surface_water(extent=ds.extent, cachename="surface_water", cachedir=cachedir)
-        rws_ds = nlmod.read.rws.discretize_surface_water(
-            ds, gdf=gdf_surface_water, da_basename="rws_oppwater", cachedir=cachedir, cachename="rws_ds.nc"
-        )
-        fill_mask = np.logical_and(top.isnull(), np.isclose(rws_ds["rws_oppwater_area"], ds["area"]))
-        top.values = xr.where(fill_mask, rws_ds["rws_oppwater_stage"], top)
-
     if isinstance(fill_northsea, str) and fill_northsea == "bathymetry":
-        da_bathymetry = nlmod.read.rws.download_bathymetry(
-            resolution="1m", extent=ds.extent, cachedir=cachedir, cachename="bathymetry_da.nc"
-        )
-        da_bathymetry_resampled = nlmod.dims.resample.structured_da_to_ds(da_bathymetry, ds, method="average")["bathymetry"]
-        fill_mask = np.logical_and(top.isnull(), da_bathymetry_resampled.notnull())
-        top.values = xr.where(fill_mask, da_bathymetry_resampled, top)
+        da_bathymetry = open_rws_bathymetry(cachedir=Path(cachedir))
+        da_bathymetry_unstr = nlmod.dims.resample.structured_da_to_ds(da_bathymetry, ds, method="average", nodata=np.nan)
+        fill_mask = np.logical_and(top.isnull(), da_bathymetry_unstr.notnull())
+        top.values = xr.where(fill_mask, da_bathymetry_unstr, top)
 
     elif isinstance(fill_northsea, (int, float)):
         isnorthsea = nlmod.read.rws.get_northsea(ds, cachedir=cachedir, cachename="sea_ds.nc")["northsea"]
