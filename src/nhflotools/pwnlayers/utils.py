@@ -27,7 +27,13 @@ def fix_missings_botms_and_min_layer_thickness(*, top=None, botm=None):
     out = xr.concat((top.expand_dims(dim={"layer": ["mv"]}, axis=0), botm), dim="layer")
     # Use ffill here to fill the nan's with the previous layer. Layer thickness is zero for non existing layers
     out = out.ffill(dim="layer")
-    out.values = np.minimum.accumulate(out.values, axis=out.dims.index("layer"))
+    layer_axis = out.get_axis_num("layer")
+    out = xr.apply_ufunc(
+        lambda a: np.minimum.accumulate(a, axis=layer_axis),
+        out,
+        dask="parallelized",
+        output_dtypes=[out.dtype],
+    )
     botm_fixed = out.isel(layer=slice(1, None)).transpose("layer", "icell2d")
 
     # inform
