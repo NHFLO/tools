@@ -202,6 +202,10 @@ def get_pwn_layer_model(
         layer_model_pwn_regis["botm"] = fix_missings_botms_and_min_layer_thickness(
             top=top, botm=layer_model_pwn_regis["botm"]
         )
+    merged_thickness = nlmod.dims.layers.calculate_thickness(layer_model_pwn_regis)
+    if (merged_thickness < 0.0).any():
+        msg = "Merged layer thickness should be non-negative"
+        raise ValueError(msg)
 
     m = np.isclose(layer_model_pwn_regis.kh, 0.0) | ~np.isfinite(layer_model_pwn_regis.kh)
     if np.any(m):
