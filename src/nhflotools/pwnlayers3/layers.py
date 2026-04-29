@@ -11,9 +11,8 @@ conductances.py, boundaries/_convert_boundaries.py). The items below are the
 concerns most relevant to *this* module's interpretation of the data:
 
 - [Edinsi 3.1, p.12] Depth data extends into the North Sea. Whether layers
-  truly exist under the seabed is unverified. ``get_botm()`` now masks
-  offshore cells using ``noordzee_clip/noordzee_clip.geojson`` so the
-  nearest-neighbor fallback does not extrapolate beneath the seabed.
+  truly exist under the seabed is unverified. The nearest-neighbor fallback
+  used in get_botm() may assign inappropriate values there.
 - [Edinsi 3.2, p.24] C12AREA has extreme resistance (37800 d) west of
   Castricum. This flows through to get_kv() without validation.
 - [Edinsi 4.1, p.32] S2.1 boundary may be too small (Eem clay has larger
@@ -561,28 +560,21 @@ def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None, isin
     botm_method : xr.DataArray, optional
         Only returned when ``return_method=True``. Integer array (same shape)
         encoding the method used per cell. See ``flag_meanings`` attribute.
-
-    Notes
-    -----
-    Per [Edinsi 3.1, p.12], the ``botm.geojson`` point data extends west of
-    the coastline into the North Sea. To prevent the nearest-neighbor fallback
-    from extrapolating layer elevations into the seabed, cells inside the
-    ``noordzee_clip/noordzee_clip.geojson`` polygon are excluded from the
-    per-layer boundary mask before interpolation, leaving NaN offshore.
     """
+    # TODO: [Edinsi 3.1, p.12] Edinsi notes that depth shapefiles extend west of the coastline
+    #   into the North Sea. The nearest-neighbor fallback below may assign inappropriate values
+    #   to cells under the seabed where layers may not exist. Edinsi recommends investigating.
+    #   Consider using the noordzee_clip polygon (bodemlagen_pwn_2024/v2.0.0/noordzee_clip/
+    #   noordzee_clip.geojson) to mask out North Sea cells and ensure interpolation does not
+    #   extrapolate layer elevations into areas where geological layers may be absent.
     # TODO: [Edinsi 4.4, p.36-37] Edinsi notes a thickness jump from 1.5m to 0.2m for S1.1 at
     #   the Koster/Bergen boundary. This discontinuity propagates through the interpolation here.
     fp = data_path_2024 / "botm" / "botm.geojson"
     gdf_botm = gpd.read_file(fp, driver="GeoJSON")
 
-    noordzee_gdf = gpd.read_file(data_path_2024 / "noordzee_clip" / "noordzee_clip.geojson", driver="GeoJSON")
-    offshore_mask = gdf_to_bool_da(noordzee_gdf, ds, min_area_fraction=1.0).values
-
     if isin_bounds is None:
         gdf_boundaries = get_gdf_boundaries(data_path_2024)
         isin_bounds = _compute_isin_bounds(ds=ds, gdf_boundaries=gdf_boundaries)
-
-    valid_mask = isin_bounds & ~offshore_mask
 
     xy_in = np.column_stack((gdf_botm.geometry.x.values, gdf_botm.geometry.y.values))
     xy_out = np.column_stack((ds.x.values, ds.y.values))
@@ -591,7 +583,7 @@ def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None, isin
     if return_method:
         method_data = np.zeros((len(layer_names), xy_out.shape[0]), dtype=np.int8)
     for i, layer_name in enumerate(layer_names):
-        mask = valid_mask[i]
+        mask = isin_bounds[i]
         src_values = gdf_botm[layer_name].values.astype(float)
         valid_src = np.isfinite(src_values)
         values = griddata(xy_in[valid_src], src_values[valid_src], xy_out[mask], method="linear")
@@ -617,7 +609,7 @@ def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None, isin
     )
 
     # Clip to boundary mask before fix so ffill only operates within layer masks
-    botm = botm.where(valid_mask)
+    botm = botm.where(isin_bounds)
 
     if fix_min_layer_thickness:
         if top is None:
@@ -625,11 +617,11 @@ def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None, isin
 
         botm_before_fix = botm.copy() if return_method else None
         botm = fix_missings_botms_and_min_layer_thickness(top=top, botm=botm)
-        # Re-mask to avoid synthetic fill-from-top outside all layer boundaries or offshore
-        any_layer_mask = valid_mask.any(axis=0)
+        # Re-mask to avoid synthetic fill-from-top outside all layer boundaries
+        any_layer_mask = isin_bounds.any(axis=0)
         botm = botm.where(any_layer_mask)
-        # Ensure final NaN pattern matches valid_mask per layer
-        botm = botm.where(valid_mask)
+        # Ensure final NaN pattern matches isin_bounds per layer
+        botm = botm.where(isin_bounds)
         if return_method:
             was_null = botm_before_fix.isnull().values
             now_valid = botm.notnull().values
@@ -640,7 +632,7 @@ def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None, isin
             method_data[was_shifted] = 4  # shifted for minimum thickness
 
     if return_method:
-        method_data[~valid_mask] = 0
+        method_data[~isin_bounds] = 0
         method_da = xr.DataArray(
             method_data,
             dims=("layer", "icell2d"),
