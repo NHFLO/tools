@@ -26,6 +26,7 @@ concerns most relevant to *this* module's interpretation of the data:
 
 import logging
 from importlib import metadata
+from pathlib import Path
 
 import geopandas as gpd
 import nlmod
@@ -37,7 +38,8 @@ from nlmod.dims.grid import gdf_to_bool_da
 from packaging import version
 from scipy.interpolate import griddata
 
-from nhflotools.pwnlayers.merge_layer_models import combine_two_layer_models
+from nhflotools.pwnlayers3.bathymetry import open_rws_bathymetry
+from nhflotools.pwnlayers3.merge_layer_models import combine_two_layer_models
 
 logger = logging.getLogger(__name__)
 
@@ -198,10 +200,10 @@ def get_pwn_layer_model(
         koppeltabel_header_other="ASSUMPTION1",
         split_method=split_method,
     )
-    if fix_min_layer_thickness:
-        layer_model_pwn_regis["botm"] = fix_missings_botms_and_min_layer_thickness(
-            top=top, botm=layer_model_pwn_regis["botm"]
-        )
+    merged_thickness = nlmod.dims.layers.calculate_thickness(layer_model_pwn_regis)
+    if (merged_thickness < 0.0).any():
+        msg = "Merged layer thickness should be non-negative"
+        raise ValueError(msg)
 
     m = np.isclose(layer_model_pwn_regis.kh, 0.0) | ~np.isfinite(layer_model_pwn_regis.kh)
     if np.any(m):
@@ -437,6 +439,72 @@ def get_ds(
         transition,
     )
 
+def get_top(
+    *,
+    ds,
+    fill_northsea="bathymetry",
+    method_elsewhere="nearest",
+    cachedir=None,
+):
+    """
+    Get top from AHN and fill the missing values with surface water levels or interpolation.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        Dataset containing the model grid.
+    fill_northsea : str or float, optional
+        Replace missing values with a constant or "bathymetry". The default is "bathymetry".
+    method_elsewhere : str, optional
+        Interpolation method. The default is "nearest".
+    cachedir : str, optional
+        Directory to cache the data. The default is None.
+
+    Returns
+    -------
+    top : xarray.DataArray
+        The top of the model grid.
+    """
+    if "ahn" not in ds:
+        msg = "Dataset should contain the AHN data"
+        raise ValueError(msg)
+
+    top = ds["ahn"].copy()
+    if isinstance(fill_northsea, str) and fill_northsea == "bathymetry":
+        da_bathymetry = open_rws_bathymetry(cachedir=Path(cachedir))
+        da_bathymetry_unstr = nlmod.dims.resample.structured_da_to_ds(da_bathymetry, ds, method="average", nodata=np.nan)
+        fill_mask = np.logical_and(top.isnull(), da_bathymetry_unstr.notnull())
+        top.values = xr.where(fill_mask, da_bathymetry_unstr, top)
+
+    elif isinstance(fill_northsea, (int, float)):
+        isnorthsea = nlmod.read.rws.get_northsea(ds, cachedir=cachedir, cachename="sea_ds.nc")["northsea"]
+        fill_mask = np.logical_and(top.isnull(), isnorthsea)
+        top.values = xr.where(fill_mask, fill_northsea, top)
+
+    else:
+        msg = "Invalid value for fill_northsea. Should be 'bathymetry', a numeric constant, or None."
+        raise ValueError(msg)
+
+    # interpolate remainder
+    points = list(
+        zip(
+            top.y.sel(icell2d=top.notnull()).values,
+            top.x.sel(icell2d=top.notnull()).values,
+            strict=False,
+        )
+    )
+    values = top.sel(icell2d=top.notnull()).values
+    qpoints = list(
+        zip(
+            top.y.sel(icell2d=top.isnull()).values,
+            top.x.sel(icell2d=top.isnull()).values,
+            strict=False,
+        )
+    )
+    qvalues = griddata(points=points, values=values, xi=qpoints, method=method_elsewhere)
+    top.loc[{"icell2d": top.isnull()}] = qvalues
+    return top
+
 
 def get_gdf_boundaries(data_path_2024):
     """Load layer boundary polygons from GeoJSON files.
@@ -604,12 +672,20 @@ def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None, isin
         attrs={"units": "mNAP", "long_name": "Bottom elevation of model layers with respect to NAP"},
     )
 
+    # Clip to boundary mask before fix so ffill only operates within layer masks
+    botm = botm.where(isin_bounds)
+
     if fix_min_layer_thickness:
         if top is None:
             top = ds.top
 
         botm_before_fix = botm.copy() if return_method else None
         botm = fix_missings_botms_and_min_layer_thickness(top=top, botm=botm)
+        # Re-mask to avoid synthetic fill-from-top outside all layer boundaries
+        any_layer_mask = isin_bounds.any(axis=0)
+        botm = botm.where(any_layer_mask)
+        # Ensure final NaN pattern matches isin_bounds per layer
+        botm = botm.where(isin_bounds)
         if return_method:
             was_null = botm_before_fix.isnull().values
             now_valid = botm.notnull().values
@@ -619,8 +695,6 @@ def get_botm(*, ds, data_path_2024, fix_min_layer_thickness=True, top=None, isin
             method_data[was_null & now_valid] = 3  # forward-fill from layer above
             method_data[was_shifted] = 4  # shifted for minimum thickness
 
-    # Clip to boundary mask (fix_min_layer_thickness ffill may extend beyond boundaries)
-    botm = botm.where(isin_bounds)
     if return_method:
         method_data[~isin_bounds] = 0
         method_da = xr.DataArray(
@@ -691,11 +765,11 @@ def _guard_zero_thickness(values, thickness, fill_value, layer_name, region=""):
     np.ndarray
         Values with zero-thickness cells replaced by fill_value.
     """
-    zero_d = np.isclose(thickness, 0.0)
+    zero_d = np.isclose(thickness, 0.0) | ~np.isfinite(thickness)
     if zero_d.any():
         region_str = f" {region}" if region else ""
         logger.warning(
-            "Layer %s%s: %d cells have zero thickness. Setting to fill_value=%.2f.",
+            "Layer %s%s: %d cells have zero or undefined thickness. Setting to fill_value=%.2f.",
             layer_name,
             region_str,
             zero_d.sum(),
@@ -1105,7 +1179,13 @@ def fix_missings_botms_and_min_layer_thickness(*, top=None, botm=None):
     out = xr.concat((top.expand_dims(dim={"layer": ["mv"]}, axis=0), botm), dim="layer")
     # Use ffill here to fill the nan's with the previous layer. Layer thickness is zero for non existing layers
     out = out.ffill(dim="layer")
-    out.values = np.minimum.accumulate(out.values, axis=out.dims.index("layer"))
+    layer_axis = out.get_axis_num("layer")
+    out = xr.apply_ufunc(
+        lambda a: np.minimum.accumulate(a, axis=layer_axis),
+        out,
+        dask="parallelized",
+        output_dtypes=[out.dtype],
+    )
     botm_fixed = out.isel(layer=slice(1, None)).transpose("layer", "icell2d")
 
     # inform

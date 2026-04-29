@@ -5,8 +5,6 @@ import numpy as np
 import xarray as xr
 from scipy.interpolate import griddata
 
-from nhflotools.pwnlayers.utils import fix_missings_botms_and_min_layer_thickness
-
 logger = logging.getLogger(__name__)
 
 # Category constants for the combined layer model
@@ -171,10 +169,6 @@ def combine_two_layer_models(
     # kt_uncoupled: rows where OTHER is NaN (deep REGIS-only layers)
     kt_uncoupled = koppeltabel[koppeltabel[koppeltabel_header_other].isna()]
 
-    # Fix minimum layer thickness and fill NaN botms in both models
-    layer_model_regis["botm"] = fix_missings_botms_and_min_layer_thickness(top=top, botm=layer_model_regis["botm"])
-    layer_model_other["botm"] = fix_missings_botms_and_min_layer_thickness(top=top, botm=layer_model_other["botm"])
-
     # Apply mask: set OTHER model values to NaN outside the valid region
     for var in ["kh", "kv", "botm"]:
         layer_model_other[var] = layer_model_other[var].where(mask_model_other[var], np.nan)
@@ -237,7 +231,8 @@ def combine_two_layer_models(
         layer=split_layer_names
     )
 
-    # Assign category per cell: 1=REGIS, 2=OTHER, 3=transition
+    # Category is assigned strictly from the per-layer mask/transition and is not
+    # modified afterwards — values 1=REGIS, 2=OTHER, 3=transition.
     category = xr.ones_like(layer_model_regis_split[["kh", "kv", "botm"]], dtype=int)
     category = category.where(~mask_model_other_split[["kh", "kv", "botm"]], other=CAT_OTHER)
     category = category.where(~transition_model_split[["kh", "kv", "botm"]], other=CAT_TRANSITION)
@@ -253,7 +248,7 @@ def combine_two_layer_models(
     combined["top"] = top
 
     if transition_method == "linear":
-        _interpolate_ds(
+        _interpolate_ds_inplace(
             combined, isvalid=category != CAT_TRANSITION, ismissing=category == CAT_TRANSITION, method="linear"
         )
     else:
@@ -271,8 +266,17 @@ def combine_two_layer_models(
     )
     result["top"] = top
 
-    # The coupled layers' botm may cross the botm of the first uncoupled layers
-    result["botm"] = fix_missings_botms_and_min_layer_thickness(top=top, botm=result["botm"])
+    # Per-column monotonicity sweep: ensure botm is non-increasing along the layer
+    # axis without any cross-cell movement (no ffill, no spread between columns).
+    botm = result["botm"].transpose("layer", "icell2d")
+    botm_vals = botm.values.copy()
+    np.minimum.accumulate(botm_vals, axis=0, out=botm_vals)
+    result["botm"] = xr.DataArray(
+        botm_vals,
+        dims=botm.dims,
+        coords=botm.coords,
+        attrs=botm.attrs,
+    ).transpose(*result["botm"].dims)
 
     result_category = xr.concat(
         [
@@ -292,12 +296,14 @@ def combine_two_layer_models(
     return result, result_category
 
 
-def _interpolate_ds(ds, isvalid, ismissing, method="linear"):
+def _interpolate_ds_inplace(ds, isvalid, ismissing, method="linear"):
     """
     Interpolate the values of the dataset inplace where the mask is True.
 
     The values are interpolated from the values where the mask is False.
     The interpolation is done using the griddata function from scipy.
+    Source data for layer L is restricted to cells of layer L; this function
+    never reads from another layer.
 
     Parameters
     ----------
@@ -323,27 +329,34 @@ def _interpolate_ds(ds, isvalid, ismissing, method="linear"):
             continue
 
         for layer in ds[k].layer.values:
-            _interpolate_da(
+            isvalid_layer = isvalid[k].sel(layer=layer)
+            ismissing_layer = ismissing[k].sel(layer=layer)
+            assert bool((isvalid_layer ^ ismissing_layer).all().item()), (
+                f"isvalid and ismissing must be disjoint and complementary on icell2d for variable {k}, layer {layer}"
+            )
+            _interpolate_da_inplace(
                 ds[k].sel(layer=layer),
-                isvalid[k].sel(layer=layer),
-                ismissing[k].sel(layer=layer),
+                isvalid_layer,
+                ismissing_layer,
                 method=method,
             )
-            if np.any(np.isnan(ds[k].sel(layer=layer, icell2d=ismissing[k].sel(layer=layer)).values)):
-                _interpolate_da(
+            if np.any(np.isnan(ds[k].sel(layer=layer, icell2d=ismissing_layer).values)):
+                _interpolate_da_inplace(
                     ds[k].sel(layer=layer),
-                    isvalid[k].sel(layer=layer),
-                    ismissing[k].sel(layer=layer),
+                    isvalid_layer,
+                    ismissing_layer,
                     method="nearest",
                 )
 
 
-def _interpolate_da(da, isvalid, ismissing, method="linear"):
+def _interpolate_da_inplace(da, isvalid, ismissing, method="linear"):
     """
     Interpolate the values of the DataArray inplace where the mask is True.
 
     The values are interpolated from the values where the mask is False.
     The interpolation is done using the griddata function from scipy.
+    Source data for layer L is restricted to cells of layer L; this function
+    never reads from another layer.
 
     Parameters
     ----------
@@ -365,6 +378,8 @@ def _interpolate_da(da, isvalid, ismissing, method="linear"):
           simplices, and interpolate linearly on each simplex.
     """
     if ismissing.sum() == 0:
+        return
+    if isvalid.sum() == 0:
         return
 
     griddata_points = list(
@@ -392,14 +407,14 @@ def _interpolate_da(da, isvalid, ismissing, method="linear"):
     da.loc[{"icell2d": ismissing}] = qvalues
 
 
-def _compute_thickness_ratios(ds_source, group_source_names, mask_valid):
+def _compute_thickness_ratios(ds_source, group_source_names, mask_valid, fallback="equal"):
     """Compute per-cell thickness ratios for a group of sublayers.
 
     For each cell where ``mask_valid`` is True, the ratio is the sublayer
     thickness divided by the total group thickness.  Where the total
-    thickness is zero (all sublayers inactive), equal ratios ``1/N`` are
-    assigned.  Cells where ``mask_valid`` is False are filled via
-    nearest-neighbor interpolation from the valid cells.
+    thickness is zero (all sublayers inactive) or where ``mask_valid`` is
+    False, equal ratios ``1/N`` are assigned — there is no cross-cell
+    extrapolation.
 
     Only the group layers (plus the layer immediately above for the group
     top) are used — thickness is **not** computed for the full source model.
@@ -415,6 +430,9 @@ def _compute_thickness_ratios(ds_source, group_source_names, mask_valid):
     mask_valid : xr.DataArray
         Boolean mask with dimension ``icell2d``.  True where the source data
         is valid for **all** layers in the group.
+    fallback : {'equal'}, optional
+        How to fill ratios where ``mask_valid`` is False.  Only ``'equal'``
+        (assign ``1/N``) is supported.
 
     Returns
     -------
@@ -422,6 +440,10 @@ def _compute_thickness_ratios(ds_source, group_source_names, mask_valid):
         Thickness ratios with dims ``(layer, icell2d)``.  The layer
         coordinate uses ``group_source_names``.  Ratios sum to 1 per cell.
     """
+    if fallback != "equal":
+        msg = f"Unknown fallback: {fallback!r}. Only 'equal' is supported."
+        raise ValueError(msg)
+
     n = len(group_source_names)
 
     # Build a mini-dataset with only the group layers and the correct group
@@ -444,35 +466,13 @@ def _compute_thickness_ratios(ds_source, group_source_names, mask_valid):
     ratios = thickness_group / safe_total
     ratios = xr.where(total > 0, ratios, 1.0 / n)
 
-    # Mask invalid cells to NaN so nearest-neighbor can fill them
+    # Where the per-cell ratio is not well-defined, assign equal 1/N ratios.
+    # No cross-cell extrapolation: each cell is decided from its own data only.
     for layer_name in group_source_names:
-        ratios.loc[{"layer": layer_name}] = ratios.sel(layer=layer_name).where(mask_valid, np.nan)
-
-    # Extrapolate invalid cells using nearest-neighbor interpolation
-    ismissing = ~mask_valid
-    if ismissing.sum() > 0:
-        if mask_valid.sum() == 0:
-            logger.warning(
-                "No valid cells for thickness ratios in group %s. Using equal ratios.",
-                group_source_names,
-            )
-            ratios = xr.DataArray(
-                np.full((n, ratios.sizes["icell2d"]), 1.0 / n),
-                dims=("layer", "icell2d"),
-                coords={"layer": group_source_names, "icell2d": ratios.coords["icell2d"]},
-            )
-        else:
-            isvalid = mask_valid
-            for layer_name in group_source_names:
-                _interpolate_da(
-                    ratios.sel(layer=layer_name),
-                    isvalid=isvalid,
-                    ismissing=ismissing,
-                    method="nearest",
-                )
+        ratios.loc[{"layer": layer_name}] = ratios.sel(layer=layer_name).where(mask_valid, 1.0 / n)
 
     # Normalize so ratios sum to exactly 1 per cell (guards against floating-
-    # point drift if interpolation method is changed in the future).
+    # point drift).
     ratio_sum = ratios.sum(dim="layer")
     ratios /= xr.where(ratio_sum > 0, ratio_sum, 1.0)
 
@@ -540,8 +540,8 @@ def _adjust_botm_with_nearest_ratios(
     Two cases:
 
     - **REGIS split** (1 REGIS -> N OTHER, e.g. HLc -> W11..S13): ratios
-      come from the OTHER model, extrapolated via nearest to cells outside
-      the OTHER mask.
+      come from the OTHER model.  Cells where any OTHER sublayer is invalid
+      receive equal ``1/N`` ratios (no cross-cell extrapolation).
     - **OTHER split** (M REGIS -> 1 OTHER, e.g. BXz1..EEz1 -> W21): ratios
       come from the REGIS model (which covers all cells).
 
@@ -592,9 +592,10 @@ def _adjust_botm_with_nearest_ratios(
         other_names = list(group_df[koppeltabel_header_other].values)
         target_names = list(group_df["split_layer"].values)
 
-        # Use cells where ALL sublayers have valid data for ratio computation
+        # Use cells where ALL sublayers have valid data for ratio computation.
+        # Cells where the AND fails fall back to equal 1/N ratios — no NN spread.
         mask_valid = mask_model_other["botm"].sel(layer=other_names).all(dim="layer")
-        ratios = _compute_thickness_ratios(layer_model_other, other_names, mask_valid)
+        ratios = _compute_thickness_ratios(layer_model_other, other_names, mask_valid, fallback="equal")
 
         _apply_ratios_to_botm(layer_model_regis_split, top, target_names, ratios)
         logger.info(
@@ -611,13 +612,14 @@ def _adjust_botm_with_nearest_ratios(
         regis_names = list(group_df[koppeltabel_header_regis].values)
         target_names = list(group_df["split_layer"].values)
 
-        # REGIS covers all cells, so mask_valid is True everywhere
+        # REGIS covers all cells, so mask_valid is True everywhere; the
+        # equal fallback is therefore never invoked here.
         mask_valid = xr.DataArray(
             np.ones(layer_model_regis.sizes["icell2d"], dtype=bool),
             dims=("icell2d",),
             coords={"icell2d": layer_model_regis.coords["icell2d"]},
         )
-        ratios = _compute_thickness_ratios(layer_model_regis, regis_names, mask_valid)
+        ratios = _compute_thickness_ratios(layer_model_regis, regis_names, mask_valid, fallback="equal")
 
         _apply_ratios_to_botm(layer_model_other_split, top, target_names, ratios)
         logger.info(
@@ -666,10 +668,12 @@ def _validate_inputs(
         "Variable 'kh', 'kv', and 'botm' in transition_model should be boolean"
     )
 
-    # Check no NaN values in layer model other variables
-    assert all(layer_model_other[k].where(mask_model_other[k], -999).notnull().all() for k in ["kh", "kv", "botm"]), (
-        "Variable 'kh', 'kv', 'botm' in layer_model_other not should be NaN where mask_model_other is True"
-    )
+    # Check no NaN values in layer model other variables inside the declared mask.
+    for k in ["kh", "kv", "botm"]:
+        assert layer_model_other[k].where(mask_model_other[k], -999).notnull().all(), (
+            f"layer_model_other has NaN inside mask_model_other for variable {k}; "
+            "ensure upstream builders fill NaN within their declared masks before calling combine_two_layer_models"
+        )
 
     # Validate transition model
     assert all(var in transition_model.variables for var in ["kh", "kv", "botm"]), (
