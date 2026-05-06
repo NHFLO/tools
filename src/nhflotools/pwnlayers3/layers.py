@@ -437,6 +437,72 @@ def get_ds(
         transition,
     )
 
+def get_top(
+    *,
+    ds,
+    fill_northsea="bathymetry",
+    method_elsewhere="nearest",
+    cachedir=None,
+):
+    """
+    Get top from AHN and fill the missing values with surface water levels or interpolation.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        Dataset containing the model grid.
+    fill_northsea : str or float, optional
+        Replace missing values with a constant or "bathymetry". The default is "bathymetry".
+    method_elsewhere : str, optional
+        Interpolation method. The default is "nearest".
+    cachedir : str, optional
+        Directory to cache the data. The default is None.
+
+    Returns
+    -------
+    top : xarray.DataArray
+        The top of the model grid.
+    """
+    if "ahn" not in ds:
+        msg = "Dataset should contain the AHN data"
+        raise ValueError(msg)
+
+    top = ds["ahn"].copy().rename("top")
+    if isinstance(fill_northsea, str) and fill_northsea == "bathymetry":
+        da_bathymetry = open_rws_bathymetry(cachedir=Path(cachedir))
+        da_bathymetry_unstr = nlmod.dims.resample.structured_da_to_ds(da_bathymetry, ds, method="average", nodata=np.nan)
+        fill_mask = np.logical_and(top.isnull(), da_bathymetry_unstr.notnull())
+        top.values = xr.where(fill_mask, da_bathymetry_unstr, top)
+
+    elif isinstance(fill_northsea, (int, float)):
+        isnorthsea = nlmod.read.rws.get_northsea(ds, cachedir=cachedir, cachename="sea_ds.nc")["northsea"]
+        fill_mask = np.logical_and(top.isnull(), isnorthsea)
+        top.values = xr.where(fill_mask, fill_northsea, top)
+
+    else:
+        msg = "Invalid value for fill_northsea. Should be 'bathymetry', a numeric constant, or None."
+        raise ValueError(msg)
+
+    # interpolate remainder
+    points = list(
+        zip(
+            top.y.sel(icell2d=top.notnull()).values,
+            top.x.sel(icell2d=top.notnull()).values,
+            strict=False,
+        )
+    )
+    values = top.sel(icell2d=top.notnull()).values
+    qpoints = list(
+        zip(
+            top.y.sel(icell2d=top.isnull()).values,
+            top.x.sel(icell2d=top.isnull()).values,
+            strict=False,
+        )
+    )
+    qvalues = griddata(points=points, values=values, xi=qpoints, method=method_elsewhere)
+    top.loc[{"icell2d": top.isnull()}] = qvalues
+    return top
+
 
 def get_gdf_boundaries(data_path_2024):
     """Load layer boundary polygons from GeoJSON files.
