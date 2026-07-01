@@ -294,10 +294,10 @@ def get_ds(
         thickness. Default is True.
     fill_value_kh : float, optional
         Fill value for kh in cells with zero layer thickness (m/day).
-        Default is 1.0.
+        Default is 5.0.
     fill_value_kv : float, optional
         Fill value for kv in cells with zero layer thickness (m/day).
-        Default is 0.1.
+        Default is 1.0.
     return_methods : bool, optional
         If True, return an additional xr.Dataset containing integer arrays
         ``botm_method``, ``kh_method``, and ``kv_method`` that record which

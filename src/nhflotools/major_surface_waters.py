@@ -70,8 +70,10 @@ def chd_ghb_from_major_surface_waters(ds, gwf, sea_stage=0.0, da_name="rws_oppwa
         Dataset with model grid
     gwf : flopy ModflowGwf
         groundwaterflow object.
-    sea_stage : float, optional
-        Sea stage, either a float or an argument accepted by by default 0.0
+    sea_stage : float or list, optional
+        Sea stage. A float imposes a constant sea stage (CHD head); a list of
+        (time, stage) tuples is wired as a linearly-interpolated time series.
+        By default 0.0.
     da_name : str, optional
         Name of the dataarray, by default "rws_oppwater"
 

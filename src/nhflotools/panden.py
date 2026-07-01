@@ -29,6 +29,9 @@ def get_oppervlakte_pwn_shapes(data_path_panden):
     panden_shp["stage"] = np.nan
     panden_shp.loc[panden_shp.Naam.str.contains("ICAS"), "stage"] = 2.8  # mNAP
     panden_shp.loc[panden_shp.Naam.str.contains("IKIEF"), "stage"] = 5.8  # mNAP
+    if panden_shp["stage"].isna().any():
+        msg = "Some panden have a Naam matching neither 'ICAS' nor 'IKIEF', so no stage was assigned."
+        raise ValueError(msg)
     panden_shp["rbot"] = panden_shp["stage"] - 2.0
     return panden_shp
 
@@ -47,11 +50,11 @@ def riv_from_oppervlakte_pwn(ds, gwf, data_path_panden):
 
     Returns
     -------
-    flopy.modflow.ModflowGwfriv
-        RIV package.
+    flopy.mf6.ModflowGwfriv or None
+        RIV package, or None when no data intersects the model extent.
     """
     panden_shp = get_oppervlakte_pwn_shapes(data_path_panden=data_path_panden)
-    rivdata = nlmod.grid.gdf_to_grid(panden_shp, gwf)
+    rivdata = nlmod.grid.gdf_to_grid(panden_shp, ds)
     if rivdata.empty:
         logger.warning("No RIV data found within the provided extent.")
         return None
