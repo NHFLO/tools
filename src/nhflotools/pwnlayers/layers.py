@@ -131,10 +131,10 @@ def get_pwn_layer_model(
     df_koppeltabel = pd.read_csv(fname_koppeltabel, skiprows=0, index_col=0)
 
     if data_path_2024 is not None:
-        ds_pwn_data_2024 = get_pwn_aquitard_data(
+        ds_pwn_data_2024 = get_pwn_aquitard_data(  # noqa: F821
             ds=ds_regis, data_dir=data_path_2024, ix=None, transition_length=length_transition
         )
-        layer_model_nhd, mask_model_nhd, transition_model_nhd = get_mensink_layer_model2(
+        layer_model_nhd, mask_model_nhd, transition_model_nhd = get_mensink_layer_model2(  # noqa: F821
             ds_pwn_data=ds_pwn_data, ds_pwn_data_2024=ds_pwn_data_2024, fix_min_layer_thickness=fix_min_layer_thickness
         )
         thick_layer_model_nhd = nlmod.dims.layers.calculate_thickness(layer_model_nhd)
