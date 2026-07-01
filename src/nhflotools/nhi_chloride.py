@@ -8,6 +8,8 @@ import xarray as xr
 
 logger = logging.getLogger(__name__)
 
+SEA_CHLORIDE_MG_L = 18_000.0
+
 
 @nlmod.cache.cache_netcdf(coords_3d=True, datavars=["northsea"])
 def get_nhi_chloride_concentration(ds, data_path_nhi_chloride):
@@ -33,11 +35,11 @@ def get_nhi_chloride_concentration(ds, data_path_nhi_chloride):
         cl = fh["chloride_p50"].transpose("layer", "y", "x").load()
 
     # cli has x and y of ds but layer of cl
-    cli = cl.interp(x=ds.x, y=ds.y, method="nearest").drop_vars(["dy", "dx", "percentile"])
+    cli = cl.interp(x=ds.x, y=ds.y, method="nearest").drop_vars(["dy", "dx", "percentile"], errors="ignore")
 
     da = nlmod.layers.aggregate_by_weighted_mean_to_ds(ds, xr.Dataset({"p50": cli}), "p50")
 
-    da.values[0] = xr.where(ds["northsea"] == 1, 18_000, da.values[0])
+    da.values[0] = xr.where(ds["northsea"] == 1, SEA_CHLORIDE_MG_L, da.values[0])
 
     for ilay in range(da.layer.size):
         da.values[ilay] = nlmod.resample.fillnan_da(ds=ds, da=da.isel(layer=ilay), method="nearest")
@@ -47,7 +49,8 @@ def get_nhi_chloride_concentration(ds, data_path_nhi_chloride):
         "units": "mg/l",
     }
 
+    da = da.bfill(dim="layer").ffill(dim="layer")
     if da.isnull().any():
-        logger.warning("Interpolated NHI chloride concentration contains NaNs")
+        logger.warning("Interpolated NHI chloride concentration still contains NaNs after fill")
 
     return da

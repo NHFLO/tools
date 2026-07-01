@@ -61,13 +61,13 @@ def riv_from_oppervlakte_pwn(ds, gwf, data_path_panden):
         rivdata,
         fields_methods={
             "stage": "area_weighted",
-            "c": "sum",
+            "cond": "sum",
             "rbot": "min",
             "Naam": "first",
         },
     )
     agg["aux"] = 0.0
-    agg.rename(columns={"Naam": "boundname", "c": "cond"}, inplace=True)
+    agg.rename(columns={"Naam": "boundname"}, inplace=True)
 
     riv_spd = nlmod.gwf.build_spd(agg, "RIV", ds, layer_method="lay_of_rbot")
 

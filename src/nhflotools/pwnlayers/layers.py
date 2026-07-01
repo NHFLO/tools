@@ -256,7 +256,7 @@ def get_pwn_layer_model(
             "kv": layer_model_active["kv"],
             "botm": layer_model_active["botm"],
             "top": layer_model_active["top"],
-            "area": ds_regis.get("area", nlmod.dims.get_area(ds_regis)),
+            "area": ds_regis["area"] if "area" in ds_regis else nlmod.dims.get_area(ds_regis),
             "xv": ds_regis["xv"],
             "yv": ds_regis["yv"],
             "icvert": ds_regis["icvert"],
@@ -315,7 +315,7 @@ def get_top_from_ahn(
         top.values = xr.where(fill_mask, rws_ds["rws_oppwater_stage"], top)
 
     if replace_northsea_with_constant is not None:
-        isnorthsea = nlmod.read.rws.get_northsea(ds, cachedir=cachedir, cachename="sea_ds.nc")["northsea"]
+        isnorthsea = nlmod.read.rws.discretize_northsea(ds)["northsea"]
         fill_mask = np.logical_and(top.isnull(), isnorthsea)
         top.values = xr.where(fill_mask, replace_northsea_with_constant, top)
 

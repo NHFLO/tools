@@ -27,14 +27,15 @@ def drn_from_waterboard_data(ds, gwf, wb="Hollands Noorderkwartier", cbot=1.0):
     gwf : flopy ModflowGwf
         groundwaterflow object.
     wb : str, optional
-        Waterboard, by default "Holl
+        Waterboard, by default "Hollands Noorderkwartier".
     cbot : float, optional
-        Conductance of the drains, by default 1.0.
+        Bottom resistance of the drains [days], by default 1.0. The per-cell conductance
+        is ``cell_area / cbot``.
 
     Returns
     -------
-    flopy.modflow.ModflowGwfdrn
-        DRN package.
+    flopy.mf6.ModflowGwfdrn or None
+        DRN package, or None when no level-area data intersects the model extent.
     """
     gdf = nlmod.read.waterboard.download_data(wb=wb, data_kind="level_areas", extent=ds.extent, verify=False)
 
@@ -71,9 +72,12 @@ def drn_from_waterboard_data(ds, gwf, wb="Hollands Noorderkwartier", cbot=1.0):
     drn_elev = xr.full_like(ds.top, np.nan)
     drn_elev.loc[{"icell2d": celldata.index}] = celldata.elev.values
     drn_elev = xr.where(drn_elev.isnull(), ds["ahn"], drn_elev)
-    drn_cond = xr.full_like(ds.top, 0.0)
+    drn_cond = xr.full_like(ds.top, np.nan)
     drn_cond.loc[{"icell2d": celldata.index}] = celldata.cond.values
-    drn_cond = xr.where(drn_cond.isnull() & ds["ahn"].notnull(), ds.area / cbot, drn_cond)
+    fallback_mask = drn_cond.isnull() & ds["ahn"].notnull()
+    if "northsea" in ds:
+        fallback_mask &= ds["northsea"] == 0
+    drn_cond = xr.where(fallback_mask, ds.area / cbot, drn_cond)
     drn_cond = drn_cond.clip(max=ds.area.max())
     ds["drn_elev"] = drn_elev
     ds["drn_cond"] = drn_cond

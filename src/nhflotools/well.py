@@ -1,9 +1,13 @@
 """Functions to get wells data for PWN model."""
 
+import logging
 import os
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def get_wells_pwn_dataframe(data_path_wells_pwn, flow_product="median"):
@@ -22,9 +26,11 @@ def get_wells_pwn_dataframe(data_path_wells_pwn, flow_product="median"):
     Returns
     -------
     gpd.GeoDataFrame
-        GeoDataFrame with wells metadata and flow [m3/day].
-    gpd.GeoDataFrame, optional
-        GeoDataFrame with flow timeseries [m3/day]. Not implemented yet.
+        GeoDataFrame with wells metadata and per-well flow ``Q`` [m3/day]. ``Q`` is the
+        secundair median flow divided over its ``sec_nput`` wells, so the individual wells
+        sum to the secundair total -- correct for the WEL package. For a grouped MAW well
+        (``maw_from_df(group="sec_flow_tag")``) multiply ``Q`` by ``sec_nput`` first, because
+        MAW applies a single combined RATE per group.
     """
     wdf = gpd.read_file(os.path.join(data_path_wells_pwn, "pumping_infiltration_wells.geojson"))
     wdf.index = wdf.locatie
@@ -48,9 +54,17 @@ def get_wells_pwn_dataframe(data_path_wells_pwn, flow_product="median"):
 
     # If constant
     if flow_product == "median":
-        constant_flow = flows.median(axis=0)
+        constant_flow = flows.median(axis=0, numeric_only=True)
         wdf["sec_nput"] = pd.to_numeric(wdf["sec_nput"], errors="coerce")
         wdf["Q"] = wdf.sec_flow_tag.map(constant_flow) / wdf.sec_nput * 24.0
+        wdf["Q"] = wdf["Q"].where(np.isfinite(wdf["Q"]))
+        n_dropped = int(wdf["Q"].isna().sum())
+        if n_dropped:
+            logger.warning(
+                "Dropping %d of %d wells without a valid secundair flow (unmapped sec_flow_tag or zero/NaN sec_nput).",
+                n_dropped,
+                len(wdf),
+            )
         return wdf.dropna(subset=["Q"])
 
     msg = f"flow_product {flow_product} not implemented"
