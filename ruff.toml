@@ -28,7 +28,7 @@ exclude = [".git", ".mypy_cache", ".ruff_cache", ".venv", ".direnv",
     "venv",
 ]
 
-target-version = "py311"
+target-version = "py314"
 
 [format]
 preview = true
