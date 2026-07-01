@@ -57,11 +57,12 @@ def get_wells_pwn_dataframe(data_path_wells_pwn, flow_product="median"):
         constant_flow = flows.median(axis=0, numeric_only=True)
         wdf["sec_nput"] = pd.to_numeric(wdf["sec_nput"], errors="coerce")
         wdf["Q"] = wdf.sec_flow_tag.map(constant_flow) / wdf.sec_nput * 24.0
-        wdf["Q"] = wdf["Q"].where(np.isfinite(wdf["Q"]))
+        wdf["Q"] = wdf["Q"].where(np.isfinite(wdf["Q"]) & (wdf["Q"] != 0))
         n_dropped = int(wdf["Q"].isna().sum())
         if n_dropped:
             logger.warning(
-                "Dropping %d of %d wells without a valid secundair flow (unmapped sec_flow_tag or zero/NaN sec_nput).",
+                "Dropping %d of %d wells without a nonzero secundair flow "
+                "(unmapped sec_flow_tag, zero/NaN sec_nput, or zero median flow).",
                 n_dropped,
                 len(wdf),
             )
