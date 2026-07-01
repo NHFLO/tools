@@ -33,7 +33,6 @@ dependencies = [
   "dask",
   "flopy",
   "geopandas",
-  "hydropandas",
   "matplotlib",
   "nlmod>=0.7.3",
   "numpy",
@@ -56,6 +55,7 @@ requires-python = ">=3.11"
 version = "0.3.0"
 
 [project.optional-dependencies]
+berging = ["hydropandas"]
 lintformat = ["hatch", "ruff==0.11.8"]
 test = [
   "pytest",

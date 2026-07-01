@@ -4,6 +4,8 @@ import nlmod
 import numpy as np
 import xarray as xr
 
+SEA_CHLORIDE_MG_L = 18_000.0
+
 
 def get_chd_ghb_data_from_major_surface_waters(ds, da_name="rws_oppwater", cachedir=None):
     """Get chd and ghb data from major surface waters.
@@ -50,11 +52,6 @@ def get_chd_ghb_data_from_major_surface_waters(ds, da_name="rws_oppwater", cache
         ds=ds, gdf=gdf_surface_waters, da_basename=da_name, cachedir=cachedir, cachename=da_name
     )
 
-    # update conductance in north sea  (0.1 day resistance, was 10)
-    rws_ds[f"{da_name}_cond"] = xr.where(
-        ds["northsea"] == 1, rws_ds[f"{da_name}_cond"] * 100, rws_ds[f"{da_name}_cond"]
-    )
-
     # change IJsselmeer+Markermeer peil
     gdf_opp_water = nlmod.read.rws.get_gdf_surface_water(ds)
     gdf_ijsselmeer = gdf_opp_water.loc[gdf_opp_water["OWMNAAM"].isin(["IJsselmeer", "Markermeer"])]
@@ -77,16 +74,14 @@ def chd_ghb_from_major_surface_waters(ds, gwf, sea_stage=0.0, da_name="rws_oppwa
         Sea stage, either a float or an argument accepted by by default 0.0
     da_name : str, optional
         Name of the dataarray, by default "rws_oppwater"
-    cachedir : str, optional
-        Directory to cache the data, by default None
 
     Returns
     -------
-    flopy.modflow.ModflowGwfghb
+    flopy.mf6.ModflowGwfghb
         GHB package
-    flopy.modflow.ModflowGwfchd
+    flopy.mf6.ModflowGwfchd
         CHD package
-    flopy.modflow.ModflowGwfts, optional
+    flopy.mf6.ModflowGwfts or None
         Time series package for sea stage
     """
     ds["sfw_stage"] = xr.where(ds["northsea"] == 0, ds[f"{da_name}_stage"], np.nan)
@@ -109,7 +104,7 @@ def chd_ghb_from_major_surface_waters(ds, gwf, sea_stage=0.0, da_name="rws_oppwa
             gwf,
             mask="northsea",
             head=ts_sea_val,
-            auxiliary=18_000.0,
+            auxiliary=SEA_CHLORIDE_MG_L,
             filename=f"{ds.model_name}.chd_sea",
             pname="chd",
         )
@@ -121,7 +116,7 @@ def chd_ghb_from_major_surface_waters(ds, gwf, sea_stage=0.0, da_name="rws_oppwa
             gwf,
             mask="northsea",
             head="sea_stage",
-            auxiliary=18_000.0,
+            auxiliary=SEA_CHLORIDE_MG_L,
             filename=f"{ds.model_name}.chd_sea",
             pname="chd",
         )

@@ -131,10 +131,10 @@ def get_pwn_layer_model(
     df_koppeltabel = pd.read_csv(fname_koppeltabel, skiprows=0, index_col=0)
 
     if data_path_2024 is not None:
-        ds_pwn_data_2024 = get_pwn_aquitard_data(
+        ds_pwn_data_2024 = get_pwn_aquitard_data(  # noqa: F821
             ds=ds_regis, data_dir=data_path_2024, ix=None, transition_length=length_transition
         )
-        layer_model_nhd, mask_model_nhd, transition_model_nhd = get_mensink_layer_model2(
+        layer_model_nhd, mask_model_nhd, transition_model_nhd = get_mensink_layer_model2(  # noqa: F821
             ds_pwn_data=ds_pwn_data, ds_pwn_data_2024=ds_pwn_data_2024, fix_min_layer_thickness=fix_min_layer_thickness
         )
         thick_layer_model_nhd = nlmod.dims.layers.calculate_thickness(layer_model_nhd)
@@ -256,7 +256,7 @@ def get_pwn_layer_model(
             "kv": layer_model_active["kv"],
             "botm": layer_model_active["botm"],
             "top": layer_model_active["top"],
-            "area": ds_regis.get("area", nlmod.dims.get_area(ds_regis)),
+            "area": ds_regis["area"] if "area" in ds_regis else nlmod.dims.get_area(ds_regis),
             "xv": ds_regis["xv"],
             "yv": ds_regis["yv"],
             "icvert": ds_regis["icvert"],
@@ -315,7 +315,7 @@ def get_top_from_ahn(
         top.values = xr.where(fill_mask, rws_ds["rws_oppwater_stage"], top)
 
     if replace_northsea_with_constant is not None:
-        isnorthsea = nlmod.read.rws.get_northsea(ds, cachedir=cachedir, cachename="sea_ds.nc")["northsea"]
+        isnorthsea = nlmod.read.rws.discretize_northsea(ds)["northsea"]
         fill_mask = np.logical_and(top.isnull(), isnorthsea)
         top.values = xr.where(fill_mask, replace_northsea_with_constant, top)
 

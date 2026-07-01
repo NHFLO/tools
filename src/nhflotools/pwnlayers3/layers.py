@@ -469,13 +469,13 @@ def get_top(
 
     top = ds["ahn"].copy().rename("top")
     if isinstance(fill_northsea, str) and fill_northsea == "bathymetry":
-        da_bathymetry = open_rws_bathymetry(cachedir=Path(cachedir))
+        da_bathymetry = nlmod.read.rws.download_bathymetry(ds.extent, cachedir=cachedir, cachename="rws_bathymetry")
         da_bathymetry_unstr = nlmod.dims.resample.structured_da_to_ds(da_bathymetry, ds, method="average", nodata=np.nan)
         fill_mask = np.logical_and(top.isnull(), da_bathymetry_unstr.notnull())
         top.values = xr.where(fill_mask, da_bathymetry_unstr, top)
 
     elif isinstance(fill_northsea, (int, float)):
-        isnorthsea = nlmod.read.rws.get_northsea(ds, cachedir=cachedir, cachename="sea_ds.nc")["northsea"]
+        isnorthsea = nlmod.read.rws.discretize_northsea(ds)["northsea"]
         fill_mask = np.logical_and(top.isnull(), isnorthsea)
         top.values = xr.where(fill_mask, fill_northsea, top)
 
