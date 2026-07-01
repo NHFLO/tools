@@ -74,10 +74,16 @@ def riv_from_oppervlakte_pwn(ds, gwf, data_path_panden):
 
     riv_spd = nlmod.gwf.build_spd(agg, "RIV", ds, layer_method="lay_of_rbot")
 
-    return flopy.mf6.ModflowGwfriv(
+    riv = flopy.mf6.ModflowGwfriv(
         gwf,
         auxiliary="CONCENTRATION",
         boundnames=True,
         stress_period_data={0: riv_spd},
         save_flows=True,
     )
+    # Register with SSM so the RIV CONCENTRATION aux is used as the source concentration.
+    if ds.transport:
+        ssm_sources = list(ds.attrs.get("ssm_sources", []))
+        if riv.package_name not in ssm_sources:
+            ds.attrs["ssm_sources"] = [*ssm_sources, riv.package_name]
+    return riv
