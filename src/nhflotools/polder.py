@@ -78,7 +78,6 @@ def drn_from_waterboard_data(ds, gwf, wb="Hollands Noorderkwartier", cbot=1.0):
     if "northsea" in ds:
         fallback_mask &= ds["northsea"] == 0
     drn_cond = xr.where(fallback_mask, ds.area / cbot, drn_cond)
-    drn_cond = drn_cond.clip(max=ds.area.max())
     ds["drn_elev"] = drn_elev
     ds["drn_cond"] = drn_cond
 
