@@ -29,9 +29,17 @@ def get_oppervlakte_pwn_shapes(data_path_panden):
     panden_shp["stage"] = np.nan
     panden_shp.loc[panden_shp.Naam.str.contains("ICAS"), "stage"] = 2.8  # mNAP
     panden_shp.loc[panden_shp.Naam.str.contains("IKIEF"), "stage"] = 5.8  # mNAP
-    if panden_shp["stage"].isna().any():
-        msg = "Some panden have a Naam matching neither 'ICAS' nor 'IKIEF', so no stage was assigned."
-        raise ValueError(msg)
+    # Only the ICAS and IKIEF infiltration panden get a stage; drop any other features (e.g. a
+    # "VIJVER" pond) that carry neither name, so they are not modelled as infiltration panden.
+    unassigned = panden_shp["stage"].isna()
+    if unassigned.any():
+        dropped = sorted(panden_shp.loc[unassigned, "Naam"].astype(str).unique())
+        logger.warning(
+            "Dropping %d pand(en) with a Naam matching neither 'ICAS' nor 'IKIEF': %s",
+            int(unassigned.sum()),
+            dropped,
+        )
+        panden_shp = panden_shp[~unassigned]
     panden_shp["rbot"] = panden_shp["stage"] - 2.0
     return panden_shp
 
