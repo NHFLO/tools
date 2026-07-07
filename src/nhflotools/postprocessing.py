@@ -99,17 +99,33 @@ def interface_elevation(ds, concentration, threshold):
     # Fill dry cells at both ends so the profile is gap-free, matching the old raw-conc scan where
     # NaN cells never counted as salt; interior gaps do not occur (dry cells are contiguous).
     conc = concentration.bfill(dim="layer").ffill(dim="layer")
-    # get_isosurface returns the first sign change of (conc - threshold) in either direction, but the
-    # physical interface is the first up-crossing from the surface. Pin columns that are already salt
-    # at the surface to the model top (this subsumes the fully-salt case) and never-salt columns to
-    # the model bottom.
+    # nlmod.dims.get_isosurface falls back to a numpy method when numba is not installed (e.g. in
+    # CI); that method cannot handle a leading time dimension, so compute the interface per time
+    # step on 2D (layer, icell2d) slices, which both the numba and numpy methods handle.
+    if "time" in conc.dims:
+        gv = xr.concat(
+            [_interface_2d(conc.isel(time=i), z, threshold, ds) for i in range(conc.sizes["time"])],
+            dim="time",
+        ).assign_coords(time=conc["time"])
+    else:
+        gv = _interface_2d(conc, z, threshold, ds)
+    gv.attrs["threshold"] = threshold
+    return gv
+
+
+def _interface_2d(conc, z, threshold, ds):
+    """Interface elevation for a single ``(layer, icell2d)`` concentration slice.
+
+    ``get_isosurface`` returns the first sign change of ``conc - threshold`` in either direction,
+    but the physical interface is the first up-crossing from the surface. Columns already at or
+    above ``threshold`` at the surface are pinned to the model top (subsuming the fully-salt case)
+    and never-salt columns to the model bottom.
+    """
     gv = nlmod.dims.get_isosurface(conc, z, threshold, left=np.nan, right=np.nan)
     surface_conc = conc.isel(layer=0)
     fresh_everywhere = (conc < threshold).all(dim="layer")
     gv = xr.where(surface_conc > threshold, ds["top"], gv)
-    gv = xr.where(fresh_everywhere, ds["botm"].isel(layer=-1), gv)
-    gv.attrs["threshold"] = threshold
-    return gv
+    return xr.where(fresh_everywhere, ds["botm"].isel(layer=-1), gv)
 
 
 def add_output_to_ds(ds, ws, model_name, *, transport=True, thresholds=(1000.0, 8000.0), denseref=1000.0):
