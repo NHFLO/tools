@@ -158,3 +158,22 @@ def test_check_budget_discrepancy_uses_absolute_value():
     assert raised, "expected RuntimeError when |discrepancy| exceeds the threshold"
 
     _run_budget_check([0.1, -0.2, 0.3], max_pct=1.0)  # below threshold -> must not raise
+
+
+def test_interface_time_dim_uses_2d_slices():
+    """With a time dim, get_isosurface is called per time step (its numpy fallback rejects 3D input)."""
+    ds = _synthetic_ds()
+    base = _conc(_CONC)
+    conc = xr.concat([base, base], dim="time").assign_coords(time=[0, 1])
+    seen_dims = []
+    real = pp.nlmod.dims.get_isosurface
+
+    def spy(da, *args, **kwargs):
+        seen_dims.append(tuple(da.dims))
+        return real(da, *args, **kwargs)
+
+    with mock.patch.object(pp.nlmod.dims, "get_isosurface", side_effect=spy):
+        pp.interface_elevation(ds, conc, _THRESHOLD)
+
+    assert seen_dims, "get_isosurface was never called"
+    assert all("time" not in dims for dims in seen_dims), f"get_isosurface received a time dim: {seen_dims}"
