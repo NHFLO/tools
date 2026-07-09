@@ -20,6 +20,8 @@ Keep this file identical in `NHFLO/data`, `NHFLO/tools`, and `NHFLO/models`. Rep
 
 Search and place reusable functionality in this order: `nlmod`, `hydropandas`, `NHFLO/tools`, `NHFLO/data`, then model-specific code. If code is useful to a second model, extract it; if it is generic, upstream it.
 
+Before adding or reimplementing generic groundwater-model behavior in `nlmod`, check upstream `flopy` first and defer to flopy when it already provides the relevant MODFLOW/grid/package logic. Keep nlmod focused on xarray/NHFLO integration and thin convenience wrappers around flopy behavior where possible.
+
 ## Data and privacy
 
 - Read NHFLO data through `nhflodata`, preferably `nhflodata.get_paths.get_abs_data_path(...)`.
@@ -55,6 +57,8 @@ uv run -q pytest --notebook-path <model-name> -v
 ```
 
 Use the smallest targeted validation first. After `ruff check --fix`, rerun `ruff format` on changed paths. Run type checks such as `uv run -q mypy ...` only when configured. For documentation-only changes, review markdown and the focused diff instead of running unrelated tests. Do not claim validation unless it was run.
+
+When working in `gwmod/nlmod`, honor that repository's own `pyproject.toml`, lint, format, and test configuration. Run nlmod formatting/linting from the nlmod repository context, not from an NHFLO repository context, so the target repo's rules are applied.
 
 ## `NHFLO/models` conventions
 
