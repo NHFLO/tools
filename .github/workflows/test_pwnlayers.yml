@@ -29,6 +29,8 @@ jobs:
       HATCH_VERBOSE: 1
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # hatch-vcs needs the tag history to derive the version
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
