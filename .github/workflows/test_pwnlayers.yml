@@ -5,16 +5,20 @@ on:
     branches:
       - main
     paths:
-      - src/pwnlayers
-      - src/pwnlayers2
+      - src/nhflotools/pwnlayers/**
+      - src/nhflotools/pwnlayers3/**
       - tests/test_pwnlayers.py
+      - pyproject.toml
+      - .github/workflows/test_pwnlayers.yml
   pull_request:
     branches:
       - main
     paths:
-      - src/pwnlayers
-      - src/pwnlayers2
+      - src/nhflotools/pwnlayers/**
+      - src/nhflotools/pwnlayers3/**
       - tests/test_pwnlayers.py
+      - pyproject.toml
+      - .github/workflows/test_pwnlayers.yml
 
 jobs:
   pwnlayers:
