@@ -1,6 +1,6 @@
 [build-system]
 build-backend = "hatchling.build"
-requires = ["hatchling>=1.8.0"]
+requires = ["hatchling>=1.8.0", "hatch-vcs"]
 
 [tool.hatch.build.targets.sdist]
 exclude = [
@@ -19,6 +19,9 @@ allow-direct-references = true
 
 [tool.hatch.publish.index]
 disable = true # Requires confirmation when publishing to pypi.
+
+[tool.hatch.version]
+source = "vcs"
 
 [project]
 authors = [{ name = "Bas des Tombe", email = "bas.des.tombe@pwn.nl" }]
@@ -39,6 +42,7 @@ dependencies = [
   "pandas",
   "pedon",
   "pykrige",
+  "pyshp",  # flopy shapefile I/O in pwnlayers is gated behind this optional flopy dep
   "scipy",
   "seaborn",
   "shapely",
@@ -46,13 +50,13 @@ dependencies = [
   "xarray",
 ]
 description = "Tools that support the NHFLO modeling environment."
+dynamic = ["version"]
 keywords = ["NHFLO"]
 license = { file = "LICENSE.txt" }
 maintainers = [{ name = "Bas des Tombe", email = "bas.des.tombe@pwn.nl" }]
 name = "nhflotools"
 readme = "README.md"
 requires-python = ">=3.14"
-version = "0.3.0"
 
 [project.optional-dependencies]
 berging = ["hydropandas"]

@@ -1,5 +1,7 @@
 from importlib.metadata import version
 
+__version__ = version("nhflotools")
+
 
 def show_nhflo_versions():
     """Show the versions of the nhflo suite."""
