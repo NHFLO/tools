@@ -42,6 +42,7 @@ dependencies = [
   "pandas",
   "pedon",
   "pykrige",
+  "pyshp",  # flopy shapefile I/O in pwnlayers is gated behind this optional flopy dep
   "scipy",
   "seaborn",
   "shapely",
