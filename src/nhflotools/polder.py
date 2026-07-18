@@ -1,3 +1,5 @@
+"""Regional polder drainage (HHNK peilgebieden) as a MODFLOW 6 DRN package."""
+
 import itertools
 from collections import Counter, defaultdict
 
@@ -7,7 +9,7 @@ import scipy.interpolate as si
 import xarray as xr
 
 
-def drn_from_waterboard_data(ds, gwf, wb="Hollands Noorderkwartier", cbot=1.0):
+def drn_from_waterboard_data(ds, gwf, wb="Hollands Noorderkwartier", cbot=1.0, exclude=None):
     """Create DRN package from waterboard data.
 
     Het oppervlaktewater in de polders is vlakdekkend geschematiseerd op basis van
@@ -31,6 +33,13 @@ def drn_from_waterboard_data(ds, gwf, wb="Hollands Noorderkwartier", cbot=1.0):
     cbot : float, optional
         Bottom resistance of the drains [days], by default 1.0. The per-cell conductance
         is ``cell_area / cbot``.
+    exclude : xarray.DataArray or None, optional
+        Boolean mask over ``icell2d`` marking cells at which no DRN reach should be
+        emitted. Both the conductance and the elevation are nulled at these cells, so a
+        reach is dropped whether its stage comes from HHNK peilgebied data or from the
+        maaiveld fallback (``nlmod.gwf.drn`` masks on ``cond > 0``). The default None
+        applies no exclusion and is fully backward-compatible. Used to hand carved lake
+        cells over to a dedicated stage boundary.
 
     Returns
     -------
@@ -80,5 +89,12 @@ def drn_from_waterboard_data(ds, gwf, wb="Hollands Noorderkwartier", cbot=1.0):
     drn_cond = xr.where(fallback_mask, ds.area / cbot, drn_cond)
     ds["drn_elev"] = drn_elev
     ds["drn_cond"] = drn_cond
+
+    if exclude is not None:
+        # Null both fields at excluded cells. nlmod.gwf.drn builds a reach wherever
+        # cond > 0, so nulling drn_cond drops the reach whether its stage came from the
+        # celldata assignment or the maaiveld fallback above.
+        ds["drn_cond"] = ds["drn_cond"].where(~exclude)
+        ds["drn_elev"] = ds["drn_elev"].where(~exclude)
 
     return nlmod.gwf.drn(ds, gwf, elev="drn_elev", cond="drn_cond")
