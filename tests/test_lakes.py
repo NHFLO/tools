@@ -155,3 +155,28 @@ def test_pond_mask_excludes_recharge_cells(disv_grid):
     assert not bool(masked_in.sel(icell2d=sorted(expected)).any())
     # masked-in count drops by exactly |lake union panden| relative to the northsea-only mask
     assert int((northsea == 0).sum()) - int(masked_in.sum()) == len(expected)
+
+
+def test_carve_lake_cells_empty_when_no_cell_clears_threshold(disv_grid):
+    """An empty / all-below-threshold lake gdf carves nothing instead of crashing.
+
+    Regression for the empty-geometry ``.area`` crash: ``carve_lake_cells`` previously
+    raised ``TypeError: can only use area methods with polygon geometries`` whenever the
+    coverage filter (or an empty input) left no surviving lake piece.
+    """
+    ds, _gwf, _geoms = disv_grid()
+    sliver = _lake_gdf([_piece(CELL_40, box(0, 400, 20, 420), 2.0, 1.0)])  # 400/40000 = 1% < 50%
+    empty = _lake_gdf([_piece(CELL_40, box(0, 400, 80, 600), 2.0, 1.0)]).iloc[0:0]
+    for gdf in (sliver, empty):
+        ds_carved, lake_cellids = lakes.carve_lake_cells(ds, gdf, min_area_fraction=0.5)
+        assert lake_cellids.tolist() == []
+        assert not bool(ds_carved["lake_cell"].any())
+        assert bool((ds_carved["top"] == ds["top"]).all())  # nothing carved
+
+
+def test_riv_from_lakes_pwn_returns_none_when_no_lake_cells(disv_grid):
+    """The per-lake RIV is ``None`` (no package added) when no cell clears the threshold."""
+    ds, gwf, _geoms = disv_grid()
+    sliver = _lake_gdf([_piece(CELL_40, box(0, 400, 20, 420), 2.0, 1.0)])
+    ds_carved, _ = lakes.carve_lake_cells(ds, sliver, min_area_fraction=0.5)
+    assert lakes.riv_from_lakes_pwn(ds_carved, gwf, sliver, min_area_fraction=0.5) is None

@@ -16,6 +16,7 @@ import logging
 import flopy
 import nlmod
 import numpy as np
+import pandas as pd
 import xarray as xr
 
 logger = logging.getLogger(__name__)
@@ -47,21 +48,31 @@ def _aggregate_lake_cells(ds, gdf_lake_grid, min_area_fraction=0.5):
     pandas.DataFrame
         Indexed by ``cellid`` with columns ``strt`` (area-weighted), ``botm`` (minimum),
         ``cond`` (summed ``piece_area / clake``, units m2/d) and ``identificatie``
-        (first). Empty-input semantics follow :func:`nlmod.grid.aggregate_vector_per_cell`.
+        (first). When no cell clears the coverage threshold (empty input, every piece
+        missing ``strt``/``botm``, or all cells below ``min_area_fraction``), an empty
+        ``cellid``-indexed frame with those columns is returned so the callers carve
+        nothing and emit no RIV rather than raising on an empty geometry column.
     """
     lake = gdf_lake_grid.dropna(subset=["strt", "botm"]).copy()
     n_drop = len(gdf_lake_grid) - len(lake)
     if n_drop:
         logger.warning("Dropping %d lake piece(s) missing strt or botm", n_drop)
 
-    # Use the true clipped-piece area throughout (coverage, conductance and the
-    # area-weighted stage), so the three are mutually consistent regardless of any stale
-    # 'area' column carried over from gdf_to_grid.
-    lake["area"] = lake.geometry.area
-    overlap = lake["area"].groupby(lake["cellid"]).transform("sum").to_numpy()
-    cell_area = ds["area"].sel(icell2d=lake["cellid"].to_numpy()).to_numpy()
-    # Strict '>' so a cell exactly at min_area_fraction is excluded.
-    lake = lake[overlap / cell_area > min_area_fraction]
+    if not lake.empty:
+        # Use the true clipped-piece area throughout (coverage, conductance and the
+        # area-weighted stage), so the three are mutually consistent regardless of any stale
+        # 'area' column carried over from gdf_to_grid.
+        lake["area"] = lake.geometry.area
+        overlap = lake["area"].groupby(lake["cellid"]).transform("sum").to_numpy()
+        cell_area = ds["area"].sel(icell2d=lake["cellid"].to_numpy()).to_numpy()
+        # Strict '>' so a cell exactly at min_area_fraction is excluded.
+        lake = lake[overlap / cell_area > min_area_fraction]
+
+    if lake.empty:
+        return pd.DataFrame(
+            {"strt": [], "botm": [], "cond": [], "identificatie": []},
+            index=pd.Index([], name="cellid", dtype="int64"),
+        )
 
     lake["cond"] = lake["area"] / lake["clake"]
     return nlmod.grid.aggregate_vector_per_cell(
@@ -143,13 +154,16 @@ def riv_from_lakes_pwn(ds, gwf, gdf_lake_grid, min_area_fraction=0.5):
 
     Returns
     -------
-    flopy.mf6.ModflowGwfriv
-        The lake RIV package. When ``ds.transport`` is set, its package name is appended to
-        ``ds.attrs['ssm_sources']`` (if absent) so its CONCENTRATION aux is used by SSM.
+    flopy.mf6.ModflowGwfriv or None
+        The lake RIV package, or ``None`` when no cell clears the coverage threshold (so the
+        caller adds no package). When ``ds.transport`` is set, the package name is appended
+        to ``ds.attrs['ssm_sources']`` (if absent) so its CONCENTRATION aux is used by SSM.
     """
     agg = _aggregate_lake_cells(ds, gdf_lake_grid, min_area_fraction=min_area_fraction).rename(
         columns={"strt": "stage", "botm": "rbot", "identificatie": "boundname"}
     )
+    if agg.empty:
+        return None
     agg["aux"] = 0.0
 
     riv_spd = nlmod.gwf.build_spd(agg, "RIV", ds, layer_method="lay_of_rbot")
