@@ -140,7 +140,7 @@ def get_pwn_layer_model(
     -------
     xr.Dataset
         Merged dataset with variables 'kh', 'kv', 'botm', 'top', 'area',
-        'xv', 'yv', 'icvert', and 'idomain'. When ``return_diagnostics``
+        'xv', 'yv', and 'icvert'. When ``return_diagnostics``
         is True, also contains ``cat_botm``, ``cat_kh``, ``cat_kv``,
         ``botm_pwn``, ``botm_method``, ``kh_method``, and ``kv_method``.
     """
@@ -221,9 +221,9 @@ def get_pwn_layer_model(
         remove_nan_layers=True,
     )
 
-    # Get idomain based on layer thickness
-    idomain = nlmod.dims.layers.get_idomain(layer_model_active)
-
+    # idomain is deliberately not stored: it is derived from layer thickness and goes stale on any
+    # later geometry edit (e.g. set_model_top). nlmod recomputes it at package-build time via
+    # nlmod.dims.layers.get_idomain (see nlmod PR #250 / NHFLO/models#120).
     data_vars = {
         "kh": layer_model_active["kh"],
         "kv": layer_model_active["kv"],
@@ -233,7 +233,6 @@ def get_pwn_layer_model(
         "xv": ds_regis["xv"],
         "yv": ds_regis["yv"],
         "icvert": ds_regis["icvert"],
-        "idomain": idomain,
     }
     if return_diagnostics:
         # Category arrays share the merged layer dim
@@ -437,6 +436,7 @@ def get_ds(
         transition,
     )
 
+
 def get_top(
     *,
     ds,
@@ -470,7 +470,9 @@ def get_top(
     top = ds["ahn"].copy().rename("top")
     if isinstance(fill_northsea, str) and fill_northsea == "bathymetry":
         da_bathymetry = nlmod.read.rws.download_bathymetry(ds.extent, cachedir=cachedir, cachename="rws_bathymetry")
-        da_bathymetry_unstr = nlmod.dims.resample.structured_da_to_ds(da_bathymetry, ds, method="average", nodata=np.nan)
+        da_bathymetry_unstr = nlmod.dims.resample.structured_da_to_ds(
+            da_bathymetry, ds, method="average", nodata=np.nan
+        )
         fill_mask = np.logical_and(top.isnull(), da_bathymetry_unstr.notnull())
         top.values = xr.where(fill_mask, da_bathymetry_unstr, top)
 
