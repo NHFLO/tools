@@ -96,7 +96,7 @@ test = "pytest -v"
 
 [tool.pytest.ini_options]
 addopts = "--strict-markers"
-env = ["MPLBACKEND=Agg"]
+env = ["MPLBACKEND=Agg", "NHFLODATA_LOCATION="]
 markers = [
   "mf6: requires the MODFLOW 6 executable",
   "network: hits live web services; excluded in CI",

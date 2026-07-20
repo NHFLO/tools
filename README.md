@@ -51,9 +51,10 @@ ze op elke pull request in CI meedraaien. Alle live webservices (HHNK, REGIS, RW
 achtergrondkaarten) worden per naam gemonkeypatcht; de rest van nlmod draait echt, waardoor
 de suite meteen dienstdoet als compatibiliteitscanary voor `nlmod@dev`.
 
-`NHFLODATA_LOCATION` wordt voor de duur van de testsessie uitgezet en daarna hersteld, zodat
-de tests altijd tegen de meegeleverde mockup-data draaien — ook op een machine waar een
-echte datamap is gekoppeld.
+`NHFLODATA_LOCATION` wordt in `pyproject.toml` via pytest-env op leeg gezet, zodat de tests
+altijd tegen de meegeleverde mockup-data draaien — ook op een machine waar een echte
+datamap is gekoppeld. Dat geldt alleen binnen pytest; een modelscript gebruikt gewoon jouw
+eigen datamap.
 
 De enige uitzondering is één test met de marker `mf6`: die draait MODFLOW echt op een
 model van 3x3x2 cellen en controleert de waterbalans plus een analytische oplossing. De

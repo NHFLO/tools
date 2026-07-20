@@ -4,11 +4,10 @@
 restructure of the NHFLO/data repository would otherwise surface as a ``FileNotFoundError``
 deep inside a model run. These tests stat every (dataset, relative file) pair that nhflotools
 -- or ``modelscripts/09pwnmodel2/01_pwnmodel2.py`` -- hardcodes, against the mockup data
-packaged with nhflodata (``conftest.pytest_configure`` unsets ``NHFLODATA_LOCATION`` for the
-whole session, so resolution always lands on the mockup).
+packaged with nhflodata (``pyproject.toml`` sets ``NHFLODATA_LOCATION=`` through pytest-env,
+so resolution always lands on the mockup).
 """
 
-import os
 from pathlib import Path
 
 import pandas as pd
@@ -95,16 +94,23 @@ def test_mockup_data_file_resolves_and_is_nonempty(dataset, relative_path):
     assert path.stat().st_size > 0, f"{dataset}/{relative_path} is empty"
 
 
-def test_data_location_env_is_suppressed_for_the_session():
+def test_paths_resolve_to_the_packaged_mockup():
     """Every path check below assumes resolution lands on the packaged mockup data.
 
-    ``get_abs_data_path`` resolves against ``NHFLODATA_LOCATION`` whenever it is set, and
-    only warns when the result is missing. On a machine with a real data mount that would
-    silently point this whole module at local data, so it would pass or fail on whichever
-    datasets happen to be mounted rather than on what NHFLO/data ships. This asserts the
-    precondition ``conftest.pytest_configure`` establishes.
+    ``get_abs_data_path`` resolves against ``NHFLODATA_LOCATION`` whenever it holds a
+    non-empty value, and only warns when the result is missing. On a machine with a real
+    data mount that would silently point this whole module at local data, so it would pass
+    or fail on whichever datasets happen to be mounted rather than on what NHFLO/data ships.
+
+    ``pyproject.toml`` therefore sets ``NHFLODATA_LOCATION=`` through pytest-env, which
+    overrides any inherited value with the empty string that ``get_paths`` reads as "use
+    mockup" (``get_paths.py:69`` defaults to ``""``, ``:96`` branches on it being falsy).
+    Asserting the resolved location rather than the variable keeps this honest if that
+    empty-means-mockup contract ever changes.
     """
-    assert os.environ.get("NHFLODATA_LOCATION") is None
+    mockup_root = Path(get_paths.__file__).parent / "data" / "mockup"
+    resolved = Path(get_abs_data_path(name="bodemlagen_pwn_regis_koppeltabel", version="latest"))
+    assert mockup_root in resolved.parents
 
 
 def test_koppeltabel_columns_and_layer_coverage():

@@ -613,13 +613,26 @@ Status legend: ☐ not started · ◐ in progress · ☑ done and green.
 
 All green. Suite total: **126 passed, 1 xfailed in ~4 s**; slowest single test 0.59 s.
 
-The suite is independent of the developer's environment: `conftest.pytest_configure` unsets
-`NHFLODATA_LOCATION` before collection (so parametrisation and any higher-scoped fixture
-also see it unset) and `pytest_unconfigure` restores it. Verified by running the whole suite
-three ways — variable unset, set to an existing empty directory, and set to the real mockup
-root — all green, and by mutation: with the suppression removed and the variable set, 42
-tests fail, led by `test_data_location_env_is_suppressed_for_the_session`, which names the
-cause rather than leaving 41 opaque path failures.
+The suite is independent of the developer's environment. `pyproject.toml` sets
+`NHFLODATA_LOCATION=` through pytest-env, alongside `MPLBACKEND=Agg`:
+
+```toml
+env = ["MPLBACKEND=Agg", "NHFLODATA_LOCATION="]
+```
+
+pytest-env overrides an inherited value with the empty string, and `get_paths.py:69`
+defaults that variable to `""` while `:96` branches on it being falsy — so empty resolves to
+the packaged mockup exactly as unset does. Being an ini setting it applies before collection,
+so parametrisation and every fixture scope see it too.
+
+`test_paths_resolve_to_the_packaged_mockup` asserts the resolved path lies under the
+installed `nhflodata/data/mockup`, i.e. the outcome rather than the variable, so it stays
+honest if that empty-means-mockup contract ever changes.
+
+Verified by running the whole suite with the variable unset, set to an existing empty
+directory, and set to a nonexistent path — all green — and by mutation: with the pytest-env
+entry removed and the variable set, 42 tests fail, led by that guard test, which names the
+cause instead of leaving 41 opaque path failures.
 
 | File | Plan § | Tests | Status |
 |---|---|---|---|
