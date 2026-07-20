@@ -611,7 +611,15 @@ Status legend: ☐ not started · ◐ in progress · ☑ done and green.
 
 ### Test files
 
-All green. Suite total: **125 passed, 1 xfailed in 4.2 s**; slowest single test 0.59 s.
+All green. Suite total: **126 passed, 1 xfailed in ~4 s**; slowest single test 0.59 s.
+
+The suite is independent of the developer's environment: `conftest.pytest_configure` unsets
+`NHFLODATA_LOCATION` before collection (so parametrisation and any higher-scoped fixture
+also see it unset) and `pytest_unconfigure` restores it. Verified by running the whole suite
+three ways — variable unset, set to an existing empty directory, and set to the real mockup
+root — all green, and by mutation: with the suppression removed and the variable set, 42
+tests fail, led by `test_data_location_env_is_suppressed_for_the_session`, which names the
+cause rather than leaving 41 opaque path failures.
 
 | File | Plan § | Tests | Status |
 |---|---|---|---|
@@ -624,7 +632,7 @@ All green. Suite total: **125 passed, 1 xfailed in 4.2 s**; slowest single test 
 | `test_pwnlayers_get_top.py` | 4.7 | 3 | ☑ |
 | `test_postprocessing.py` (extended) | 4.6 | 17 | ☑ |
 | `test_pwnlayers3_plot.py` | 4.9 | 10 | ☑ |
-| `test_nhflodata_contract.py` | 4.10 | 41 | ☑ |
+| `test_nhflodata_contract.py` | 4.10 | 42 | ☑ |
 | `test_mf6_smoke.py` | 4.11 | 1 | ☑ |
 
 Every test file was mutation-checked during implementation: a plausible bug was introduced

@@ -45,11 +45,15 @@ door 09pwnmodel2 en zijn ongetest — behandel ze als legacy of werk-in-uitvoeri
 
 ## Tests
 
-De suite telt 126 tests en draait in ongeveer 4 seconden. De tests gebruiken uitsluitend
+De suite telt 127 tests en draait in ongeveer 4 seconden. De tests gebruiken uitsluitend
 kleine synthetische modellen — geen netwerk, geen gridgen en geen grote datasets — zodat
 ze op elke pull request in CI meedraaien. Alle live webservices (HHNK, REGIS, RWS,
 achtergrondkaarten) worden per naam gemonkeypatcht; de rest van nlmod draait echt, waardoor
 de suite meteen dienstdoet als compatibiliteitscanary voor `nlmod@dev`.
+
+`NHFLODATA_LOCATION` wordt voor de duur van de testsessie uitgezet en daarna hersteld, zodat
+de tests altijd tegen de meegeleverde mockup-data draaien — ook op een machine waar een
+echte datamap is gekoppeld.
 
 De enige uitzondering is één test met de marker `mf6`: die draait MODFLOW echt op een
 model van 3x3x2 cellen en controleert de waterbalans plus een analytische oplossing. De
