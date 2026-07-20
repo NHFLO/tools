@@ -1,0 +1,53 @@
+name: Test python files
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Run pytest
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+      cancel-in-progress: true
+    env:
+      HATCH_VERBOSE: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install hatch
+        run: uv tool install hatch
+
+      # nlmod and nhflodata track moving branches, so key the cache on their current
+      # head commits: a new upstream commit rebuilds the env, otherwise it is reused.
+      - name: Resolve moving dependencies
+        id: deps
+        run: |
+          echo "data_sha=$(git ls-remote https://github.com/NHFLO/data.git main | cut -f1)" >> "$GITHUB_OUTPUT"
+          echo "nlmod_sha=$(git ls-remote https://github.com/gwmod/nlmod.git dev | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the test environment
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: uv-${{ hashFiles('pyproject.toml') }}-${{ steps.deps.outputs.data_sha }}-${{ steps.deps.outputs.nlmod_sha }}
+
+      # The MODFLOW binaries are not cached: nlmod downloads them into its own package
+      # directory, which lives inside the hatch environment and is rebuilt whenever the
+      # environment cache misses. The single mf6-marked test fetches them via
+      # nlmod.util.get_exe_path on first use (~30 s) and reuses them afterwards.
+      - name: Run tests
+        run: hatch run test:test -- -m "not network" --durations=15

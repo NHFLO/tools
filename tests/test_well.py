@@ -4,6 +4,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 from shapely.geometry import Point
@@ -319,3 +320,131 @@ def test_tata_fresh_wells_preserve_no_qualifying_kd_failure(monkeypatch, tmp_pat
 
     with pytest.raises(IndexError):
         well.get_wells_tata_dataframes(tmp_path, ds)
+
+
+# --- get_wells_pwn_dataframe ------------------------------------------------
+#
+# One synthetic secundair bookkeeping, shared by every PWN test below.
+#
+# Wells (``sec_nput`` = number of wells the secundair flow is spread over):
+#   W1/W2/W3  tag T1     sec_nput 3     -> extraction, split three ways
+#   W4        tag T2     sec_nput 1     -> extraction, asymmetric series
+#   W5        tag TX     sec_nput 2     -> tag absent from the feather  (drop)
+#   W6        tag T1     sec_nput 0     -> division by zero -> +/-inf    (drop)
+#   W7        tag T0     sec_nput 2     -> secundair median is zero      (drop)
+#   W8        tag TINF   sec_nput 2     -> infiltration, positive median (keep)
+#
+# Series medians, by hand (median, not mean -- T2 and TINF are asymmetric so a
+# mean would give a different answer):
+#   T1   [-30, -30, -30] -> -30      (mean -30, not a discriminator)
+#   T2   [-10, -20, -60] -> -20      (mean -30)
+#   T0   [ -4,   0,   4] ->   0      (drops on the ``Q != 0`` mask)
+#   TINF [  4,   8,  20] ->   8      (mean 32/3)
+# The 'ophaal tijdstip' column is datetime: it must be excluded by
+# ``numeric_only=True`` and must not become a mappable secundair tag.
+_PWN_WELLS = (
+    # locatie, sec_flow_tag, sec_nput, x, y
+    ("W1", "T1", 3, 0.0, 1.0),
+    ("W2", "T1", "3", 100.0, 2.0),  # string on purpose; GeoJSON stringifies the column anyway
+    ("W3", "T1", 3, 200.0, 3.0),
+    ("W4", "T2", 1, 300.0, 4.0),
+    ("W5", "TX", 2, 400.0, 5.0),
+    ("W6", "T1", 0, 500.0, 6.0),
+    ("W7", "T0", 2, 600.0, 7.0),
+    ("W8", "TINF", 2, 700.0, 8.0),
+)
+_PWN_FLOWS = {
+    "T1": [-30.0, -30.0, -30.0],
+    "T2": [-10.0, -20.0, -60.0],
+    "T0": [-4.0, 0.0, 4.0],
+    "TINF": [4.0, 8.0, 20.0],
+}
+_PWN_MEDIANS = {"T1": -30.0, "T2": -20.0, "T0": 0.0, "TINF": 8.0}
+
+
+@pytest.fixture
+def pwn_data_path(tmp_path):
+    """Write a real ``pumping_infiltration_wells.geojson`` and ``sec_flows.feather``.
+
+    Real files rather than patched readers: the GeoJSON round-trip is what turns
+    ``sec_nput`` into strings, which is exactly the input ``well.py`` has to coerce.
+
+    Returns
+    -------
+    pathlib.Path
+        Directory holding both input files.
+    """
+    wells = gpd.GeoDataFrame(
+        {
+            "locatie": [row[0] for row in _PWN_WELLS],
+            "sec_flow_tag": [row[1] for row in _PWN_WELLS],
+            "sec_nput": [row[2] for row in _PWN_WELLS],
+        },
+        geometry=[Point(row[3], row[4]) for row in _PWN_WELLS],
+        crs="EPSG:28992",
+    )
+    wells.to_file(tmp_path / "pumping_infiltration_wells.geojson", driver="GeoJSON")
+
+    flows = pd.DataFrame({
+        **_PWN_FLOWS,
+        "ophaal tijdstip": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"]),
+    })
+    flows.to_feather(tmp_path / "sec_flows.feather")
+    return tmp_path
+
+
+def test_pwn_q_splits_secundair_median_and_conserves_the_total(pwn_data_path):
+    """Per-well Q is 24 * median / sec_nput, so a secundair sums back to 24 * median."""
+    wdf = well.get_wells_pwn_dataframe(pwn_data_path)
+
+    # Surviving wells, in input order; W5/W6/W7 have no usable flow.
+    assert wdf.index.to_list() == ["W1", "W2", "W3", "W4", "W8"]
+    assert wdf.index.name == "locatie"
+
+    # m3/h -> m3/day is a factor 24; the secundair flow is split over sec_nput wells.
+    assert wdf.loc[["W1", "W2", "W3"], "Q"].to_list() == [-240.0] * 3  # 24 * -30 / 3
+    assert wdf.loc["W4", "Q"] == 24.0 * _PWN_MEDIANS["T2"] / 1  # -480.0, median not mean
+    assert wdf.loc["W8", "Q"] == 24.0 * _PWN_MEDIANS["TINF"] / 2  # +96.0
+
+    # The WEL mass-balance contract: the three T1 wells reconstruct the whole secundair.
+    assert wdf.loc[["W1", "W2", "W3"], "Q"].sum() == 24.0 * _PWN_MEDIANS["T1"]
+
+    # "3" arrived as a string from the GeoJSON and must have been coerced to a number.
+    assert pd.api.types.is_numeric_dtype(wdf["sec_nput"])
+    assert wdf["sec_nput"].to_list() == [3, 3, 3, 1, 2]
+
+    # Geometry-derived and constant MAW/transport columns.
+    assert wdf["x"].to_list() == [0.0, 100.0, 200.0, 300.0, 700.0]
+    assert wdf["y"].to_list() == [1.0, 2.0, 3.0, 4.0, 8.0]
+    assert wdf["rw"].to_list() == [0.25] * 5
+    assert wdf["CONCENTRATION"].to_list() == [0.0] * 5
+
+
+def test_pwn_drops_unusable_wells_warns_once_and_keeps_infiltration(pwn_data_path, caplog):
+    """Unmapped, zero-nput and zero-median wells drop; a positive infiltration survives."""
+    with caplog.at_level("WARNING", logger=well.logger.name):
+        wdf = well.get_wells_pwn_dataframe(pwn_data_path)
+
+    assert set(wdf.index) == {"W1", "W2", "W3", "W4", "W8"}
+
+    # One summary warning carrying (n_dropped, n_total): 3 of the 8 input wells.
+    warnings = [record for record in caplog.records if "without a nonzero secundair flow" in record.getMessage()]
+    assert len(warnings) == 1
+    assert warnings[0].args == (3, len(_PWN_WELLS))
+
+    # The drop mask is sign-symmetric: it removes non-finite and zero, never negatives,
+    # and never the sole infiltration well.
+    assert np.isfinite(wdf["Q"]).all()
+    assert (wdf["Q"] != 0.0).all()
+    assert wdf.loc["W8", "Q"] > 0.0
+    assert (wdf.loc[["W1", "W2", "W3", "W4"], "Q"] < 0.0).all()
+
+
+@pytest.mark.parametrize(
+    ("flow_product", "expected_error"),
+    [("timeseries", NotImplementedError), ("bogus", ValueError)],
+)
+def test_pwn_unsupported_flow_product_raises(pwn_data_path, flow_product, expected_error):
+    """Only the median product is implemented; other products fail loudly."""
+    with pytest.raises(expected_error):
+        well.get_wells_pwn_dataframe(pwn_data_path, flow_product=flow_product)

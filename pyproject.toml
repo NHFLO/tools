@@ -41,6 +41,7 @@ dependencies = [
   "numpy",
   "pandas",
   "pedon",
+  "pyarrow",  # pandas feather I/O in well.py is gated behind this optional pandas dep
   "pykrige",
   "pyshp",  # flopy shapefile I/O in pwnlayers is gated behind this optional flopy dep
   "scipy",
@@ -82,10 +83,10 @@ format = [
   "ruff format src/nhflotools/*.py tests",
 ]
 lint = [
-  "ruff check tests/test_pwnlayers.py src/nhflotools/pwnlayers src/nhflotools/geoconverter src/nhflotools/major_surface_waters.py src/nhflotools/nhi_chloride.py src/nhflotools/panden.py src/nhflotools/polder.py src/nhflotools/well.py",
+  "ruff check tests src/nhflotools/pwnlayers src/nhflotools/geoconverter src/nhflotools/major_surface_waters.py src/nhflotools/nhi_chloride.py src/nhflotools/panden.py src/nhflotools/polder.py src/nhflotools/well.py",
 ]
 lintminimal = [
-  "ruff check src/nhflotools/pwnlayers src/nhflotools/geoconverter src/nhflotools/major_surface_waters.py src/nhflotools/nhi_chloride.py src/nhflotools/panden.py src/nhflotools/polder.py src/nhflotools/well.py --config \"lint.select=['E4', 'E7', 'E9', 'F']\"",
+  "ruff check tests src/nhflotools/pwnlayers src/nhflotools/geoconverter src/nhflotools/major_surface_waters.py src/nhflotools/nhi_chloride.py src/nhflotools/panden.py src/nhflotools/polder.py src/nhflotools/well.py --config \"lint.select=['E4', 'E7', 'E9', 'F']\"",
 ]
 
 [tool.hatch.envs.test]
@@ -94,4 +95,10 @@ features = ["test"]
 test = "pytest -v"
 
 [tool.pytest.ini_options]
+addopts = "--strict-markers"
+env = ["MPLBACKEND=Agg"]
+markers = [
+  "mf6: requires the MODFLOW 6 executable",
+  "network: hits live web services; excluded in CI",
+]
 testpaths = ["tests"]
