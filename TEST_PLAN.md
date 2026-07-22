@@ -1,6 +1,6 @@
 # Test plan — nhflotools, scoped to the 09pwnmodel2 closure
 
-Implementation plan only; nothing here is implemented yet. Scope = the 13 nhflotools entry
+Implemented in full — §9 records the progress and the deviations. Scope = the 13 nhflotools entry
 points `models/modelscripts/09pwnmodel2/01_pwnmodel2.py` imports, plus their transitive
 nhflotools closure (`pwnlayers.merge_layer_models`, `pwnlayers.utils`,
 `panden.get_oppervlakte_pwn_shapes`). Target: a lean, meaningful pytest suite that runs
