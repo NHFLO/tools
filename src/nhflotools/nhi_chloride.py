@@ -37,7 +37,8 @@ def get_nhi_chloride_concentration(ds, data_path_nhi_chloride):
     # cli has x and y of ds but layer of cl
     cli = cl.interp(x=ds.x, y=ds.y, method="nearest").drop_vars(["dy", "dx", "percentile"], errors="ignore")
 
-    da = nlmod.layers.aggregate_by_weighted_mean_to_ds(ds, xr.Dataset({"p50": cli}), "p50")
+    # The NHI file names its voxel floor "bottom"; nlmod's default is "botm".
+    da = nlmod.layers.aggregate_by_weighted_mean_to_ds(ds, xr.Dataset({"p50": cli}), "p50", source_botm_name="bottom")
 
     da.values[0] = xr.where(ds["northsea"] == 1, SEA_CHLORIDE_MG_L, da.values[0])
 
