@@ -11,6 +11,7 @@ import logging
 import types
 
 import geopandas as gpd
+import nlmod
 import numpy as np
 import pandas as pd
 import pytest
@@ -266,6 +267,15 @@ def test_riv_from_lakes_pwn_returns_none_when_no_lake_cells(disv_grid):
     assert lakes.riv_from_lakes_pwn(ds_carved, gwf, sliver, min_area_fraction=0.5) is None
 
 
+def _build_lak(ds, gwf, gdf_lake_grid):
+    """Mirror the model script's LAK branch: prepare the frame, then build via nlmod."""
+    gdf = lakes.lak_gdf_from_lakes_pwn(ds, gdf_lake_grid, min_area_fraction=0.5)
+    rainfall, evaporation = nlmod.gwf.copy_meteorological_data_from_ds(gdf, ds, boundname_column="identificatie")
+    return nlmod.gwf.lake_from_gdf(
+        gwf, gdf, ds, rainfall=rainfall, evaporation=evaporation, boundname_column="identificatie"
+    )
+
+
 def _add_time_and_recharge(ds, recharge=0.0007):
     """Extend the synthetic ds with the time axis and recharge that LAK needs."""
     ds = ds.assign_coords(time=pd.to_datetime(["2023-01-01"]))
@@ -289,7 +299,7 @@ def test_lak_connections_match_carved_cells_with_equivalent_conductance(disv_gri
     gdf = _single_and_two_piece_lakes(geoms)
     ds_carved, lake_cellids = lakes.carve_lake_cells(ds, gdf, min_area_fraction=0.5)
 
-    lak = lakes.lak_from_lakes_pwn(ds_carved, gwf, gdf, min_area_fraction=0.5)
+    lak = _build_lak(ds_carved, gwf, gdf)
 
     conns = lak.connectiondata.array
     assert {int(cid[-1]) for cid in conns["cellid"]} == set(lake_cellids.tolist())
@@ -304,7 +314,7 @@ def test_lak_connections_match_carved_cells_with_equivalent_conductance(disv_gri
     assert strt_by_name["lake_single"] == pytest.approx(2.5)
     assert strt_by_name["lake_two_pieces"] == pytest.approx((AREA_A * STRT_A + AREA_B * STRT_B) / (AREA_A + AREA_B))
 
-    # the default rainfall='from_ds' feeds ds['recharge'] to the lakes as RAINFALL
+    # copy_meteorological_data_from_ds feeds ds['recharge'] to the lakes as RAINFALL
     settings = {(int(rec[0]), rec[1]): rec[2] for rec in lak.perioddata.data[0]}
     lakeno_by_name = {rec[-1]: int(rec[0]) for rec in lak.packagedata.array}
     assert settings[lakeno_by_name["lake_single"], "RAINFALL"] == pytest.approx(0.0007)
@@ -329,7 +339,7 @@ def test_lak_two_lakes_sharing_a_cell_stay_separate(disv_grid):
     gdf = _lake_gdf(rows)
     ds_carved, lake_cellids = lakes.carve_lake_cells(ds, gdf, min_area_fraction=0.5)
 
-    lak = lakes.lak_from_lakes_pwn(ds_carved, gwf, gdf, min_area_fraction=0.5)
+    lak = _build_lak(ds_carved, gwf, gdf)
 
     strt_by_name = {rec[-1]: rec[1] for rec in lak.packagedata.array}
     assert strt_by_name["lake_a"] == pytest.approx(strt_a)
@@ -360,17 +370,17 @@ def test_lak_single_strt_for_lake_spanning_multiple_cells(disv_grid):
     gdf = _lake_gdf(rows)
     ds_carved, lake_cellids = lakes.carve_lake_cells(ds, gdf, min_area_fraction=0.5)
 
-    lak = lakes.lak_from_lakes_pwn(ds_carved, gwf, gdf, min_area_fraction=0.5)
+    lak = _build_lak(ds_carved, gwf, gdf)
 
     assert len(lak.packagedata.array) == 1
     assert lak.packagedata.array[0][1] == pytest.approx(2.5)  # mean over equal-area cells
     assert {int(conn["cellid"][-1]) for conn in lak.connectiondata.array} == set(lake_cellids.tolist())
 
 
-def test_lak_from_lakes_pwn_returns_none_when_no_lake_cells(disv_grid):
-    """LAK is ``None`` (no package added) when no cell clears the threshold."""
-    ds, gwf, _geoms = disv_grid()
+def test_lak_gdf_from_lakes_pwn_returns_none_when_no_lake_cells(disv_grid):
+    """The LAK input frame is ``None`` when no cell clears the threshold (no package built)."""
+    ds, _gwf, _geoms = disv_grid()
     ds = _add_time_and_recharge(ds)
     sliver = _lake_gdf([_piece(CELL_40, box(0, 400, 20, 420), 2.0, 1.0)])
     ds_carved, _ = lakes.carve_lake_cells(ds, sliver, min_area_fraction=0.5)
-    assert lakes.lak_from_lakes_pwn(ds_carved, gwf, sliver, min_area_fraction=0.5) is None
+    assert lakes.lak_gdf_from_lakes_pwn(ds_carved, sliver, min_area_fraction=0.5) is None

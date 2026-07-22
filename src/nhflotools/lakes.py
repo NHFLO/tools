@@ -8,9 +8,10 @@ budgets stay attributable and a future MVR/weir or LAK configuration can address
 individually. Both the carved cell set and the RIV reach set are derived from the single
 aggregator :func:`_aggregate_lake_cells`, so the two sets are equal by construction: no
 carved cell is ever left without a stage, and no stage reach ever lands on an un-carved
-cell. For detailed studies :func:`lak_from_lakes_pwn` builds the LAK package from the
-same aggregator instead, solving the stage from the lake water balance with the same
-lakebed leakance as the RIV.
+cell. For detailed studies :func:`lak_gdf_from_lakes_pwn` prepares a LAK input frame
+from the same aggregator instead, which the model script feeds directly to
+:func:`nlmod.gwf.lake_from_gdf` to solve the stage from the lake water balance with
+the same lakebed leakance as the RIV.
 
 The logic lives here (rather than inline in the model script) so it can be imported and
 unit-tested without running the full REGIS/AHN/MF6 build.
@@ -223,42 +224,29 @@ def riv_from_lakes_pwn(ds, gwf, gdf_lake_grid, min_area_fraction=0.5):
     return riv
 
 
-def lak_from_lakes_pwn(
-    ds,
-    gwf,
-    gdf_lake_grid,
-    min_area_fraction=0.5,
-    gwt=None,
-    rainfall="from_ds",
-    evaporation="from_ds",
-    **kwargs,
-):
-    """Model the carved lake cells with the LAK package instead of a stage RIV.
+def lak_gdf_from_lakes_pwn(ds, gdf_lake_grid, min_area_fraction=0.5):
+    """Prepare the per-cell lake frame that :func:`nlmod.gwf.lake_from_gdf` consumes.
 
-    Alternative to :func:`riv_from_lakes_pwn` for detailed studies: the lake stage
-    follows from the simulated lake water balance instead of being prescribed, which
-    resolves stage drawdown, lake storage and (via ``lakeout`` columns) outlets, at the
-    cost of a harder nonlinear solve. The connection set is derived from the same
-    :func:`_aggregate_lake_cells` call as :func:`carve_lake_cells`, so it equals the
-    carved-cell set by construction, and the lakebed leakance matches the RIV variant:
-    each (cell, lake) row becomes one VERTICAL connection with an effective bed
-    resistance ``clake_eff = cell_area / sum(piece_area / clake)``, so ``bedleak *
-    cell_area`` equals the summed piece conductance of the corresponding RIV reach. The
-    total exchange is nevertheless somewhat weaker than the RIV's, because MF6 places
-    the connected cell's half-cell vertical resistance (``0.5 * thickness / k33``) in
-    series with the lakebed for VERTICAL connections, which the RIV formulation applies
-    directly to the cell node (12-16% lower on the PWN layer model). Like the RIV (and
-    unlike a GHB), the exchange is capped at the lakebed once the aquifer head drops
-    below it.
+    Alternative input to :func:`riv_from_lakes_pwn` for detailed studies: the caller
+    builds the LAK package directly with :func:`nlmod.gwf.lake_from_gdf` (and typically
+    :func:`nlmod.gwf.copy_meteorological_data_from_ds` for per-lake rainfall and
+    evaporation), so the lake stage follows from the simulated water balance instead of
+    being prescribed. The frame is derived from the same :func:`_aggregate_lake_cells`
+    call as :func:`carve_lake_cells`, so the LAK connection set equals the carved-cell
+    set by construction, and the lakebed leakance matches the RIV variant: each
+    (cell, lake) row yields one VERTICAL connection with an effective bed resistance
+    ``clake = cell_area / sum(piece_area / clake)``, so ``bedleak * cell_area`` equals
+    the summed piece conductance of the corresponding RIV reach. The total exchange is
+    nevertheless somewhat weaker than the RIV's, because MF6 places the connected
+    cell's half-cell vertical resistance (``0.5 * thickness / k33``) in series with the
+    lakebed for VERTICAL connections, which the RIV formulation applies directly to the
+    cell node (12-16% lower on the PWN layer model). Like the RIV (and unlike a GHB),
+    the exchange is capped at the lakebed once the aquifer head drops below it.
 
     Parameters
     ----------
     ds : xarray.Dataset
-        Model dataset (post-carve) with ``top``, ``botm``, ``area``, ``idomain`` and a
-        time discretisation in days. ``recharge`` is required when
-        ``rainfall='from_ds'`` and ``chloride`` when ``gwt`` is given.
-    gwf : flopy.mf6.ModflowGwf
-        Groundwater flow model the LAK package is added to.
+        Model dataset (post-carve). Only ``ds['area']`` is used.
     gdf_lake_grid : geopandas.GeoDataFrame
         Lake polygons intersected with the model grid (see
         :func:`_aggregate_lake_cells`). Per-lake outlet columns (``lakeout``,
@@ -267,32 +255,23 @@ def lak_from_lakes_pwn(
     min_area_fraction : float, optional
         Minimum combined lake coverage for a cell to be connected, by default 0.5
         (strict ``>``), identical to the carve threshold.
-    gwt : flopy.mf6.ModflowGwt, optional
-        When given, a matching LKT transport package is created as well and
-        ``(lak, lkt)`` is returned. The default is None.
-    rainfall, evaporation : str, float, pandas.DataFrame or None, optional
-        Passed to :func:`nlmod.gwf.lake.lake_from_gdf`. The default ``'from_ds'``
-        derives per-lake area-weighted series from the meteorology in ``ds`` with
-        :func:`nlmod.gwf.lake.copy_meteorological_data_from_ds`. Exclude the lake cells
-        from the RCH package (see :func:`recharge_pond_mask`) so the meteoric term is
-        not counted both on the lake and on the aquifer.
-    **kwargs
-        Passed to :func:`nlmod.gwf.lake.lake_from_gdf` and on to
-        :class:`flopy.mf6.ModflowGwflak` (e.g. ``save_flows``,
-        ``package_convergence_filerecord``).
 
     Returns
     -------
-    flopy.mf6.ModflowGwflak, tuple or None
-        The LAK package, ``(lak, lkt)`` when ``gwt`` is given, or ``None`` when no cell
-        clears the coverage threshold (so the caller adds no package).
+    pandas.DataFrame or None
+        One row per (cell, lake), indexed by ``icell2d`` as ``lake_from_gdf`` expects,
+        with ``strt`` (one exact value per lake — the per-cell area-weighted values can
+        differ at floating-point level and LAK requires a single strt), the effective
+        ``clake``, ``identificatie`` and any outlet columns. ``None`` when no cell
+        clears the coverage threshold, so the caller adds no package.
 
     Notes
     -----
-    When two lakes share a carved cell, MF6 applies each lake's RAINFALL over that
-    lake's full connection (cell) area while RCH excluded the cell only once, so the
-    meteoric term on such a cell is over-applied. No current ``lakes_pwn`` cell is
-    shared between lakes.
+    Exclude the lake cells from the RCH package (see :func:`recharge_pond_mask`) so the
+    meteoric term is not counted both on the lake and on the aquifer. When two lakes
+    share a carved cell, MF6 applies each lake's RAINFALL over that lake's full
+    connection (cell) area while RCH excluded the cell only once, so the meteoric term
+    on such a cell is over-applied; no current ``lakes_pwn`` cell is shared.
     """
     agg, _ = _aggregate_lake_cells(ds, gdf_lake_grid, min_area_fraction=min_area_fraction)
     if agg.empty:
@@ -300,8 +279,6 @@ def lak_from_lakes_pwn(
 
     gdf = agg.drop(columns=["botm"])
     gdf["clake"] = ds["area"].sel(icell2d=gdf.index.to_numpy()).to_numpy() / gdf.pop("cond")
-    # LAK requires one exact strt per lake; the per-cell area-weighted values can differ
-    # at floating-point level.
     gdf["strt"] = gdf.groupby("identificatie")["strt"].transform("mean")
 
     outlet_columns = [
@@ -312,28 +289,7 @@ def lak_from_lakes_pwn(
     if outlet_columns:
         per_lake = gdf_lake_grid.drop_duplicates("identificatie").set_index("identificatie")[outlet_columns]
         gdf = gdf.join(per_lake, on="identificatie")
-
-    rainfall_from_ds = isinstance(rainfall, str) and rainfall == "from_ds"
-    evaporation_from_ds = isinstance(evaporation, str) and evaporation == "from_ds"
-    if rainfall_from_ds or evaporation_from_ds:
-        ds_rainfall, ds_evaporation = nlmod.gwf.lake.copy_meteorological_data_from_ds(
-            gdf, ds, boundname_column="identificatie"
-        )
-        if rainfall_from_ds:
-            rainfall = ds_rainfall
-        if evaporation_from_ds:
-            evaporation = ds_evaporation
-
-    return nlmod.gwf.lake.lake_from_gdf(
-        gwf,
-        gdf,
-        ds,
-        rainfall=rainfall,
-        evaporation=evaporation,
-        boundname_column="identificatie",
-        gwt=gwt,
-        **kwargs,
-    )
+    return gdf
 
 
 def recharge_pond_mask(ds, panden_riv=None, *, fractional=False):
