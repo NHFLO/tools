@@ -17,6 +17,7 @@ the conductance after the celldata assignment rather than only editing the fallb
 import geopandas as gpd
 import nlmod
 import numpy as np
+import pytest
 import xarray as xr
 from shapely.geometry import box
 
@@ -187,3 +188,20 @@ def test_drn_fallback_excludes_lake_cells(disv_grid, monkeypatch):
     assert CELL_REAL_STAGE not in excl_cells
     assert CELL_FALLBACK in excl_cells  # a fallback (maaiveld) cell is unaffected
     assert excl_cells == base_cells - {CELL_REAL_STAGE}
+
+
+def test_drn_fractional_exclude_scales_land_share(disv_grid, monkeypatch):
+    """A fractional exclude scales the conductance by ``1 - fraction`` and drops fully covered cells."""
+    ds, gwf, _geoms = disv_grid()
+    frac = xr.zeros_like(ds["top"]).astype(float)
+    frac.loc[{"icell2d": CELL_REAL_STAGE}] = 0.4  # 40% open water at the real-stage cell
+    frac.loc[{"icell2d": CELL_FALLBACK}] = 1.0  # fully open water -> reach dropped
+
+    drn = _run_drn(monkeypatch, ds, gwf, exclude=frac)
+    conds = {rec["cellid"][-1]: float(rec["cond"]) for rec in drn.stress_period_data.data[0]}
+
+    # cbot=1.0, so the unscaled conductance equals the cell area.
+    assert conds[CELL_REAL_STAGE] == pytest.approx(0.6 * float(ds["area"].sel(icell2d=CELL_REAL_STAGE)))
+    assert CELL_FALLBACK not in conds
+    untouched = next(c for c in conds if c not in {CELL_REAL_STAGE, CELL_FALLBACK})
+    assert conds[untouched] == pytest.approx(float(ds["area"].sel(icell2d=untouched)))

@@ -34,12 +34,13 @@ def drn_from_waterboard_data(ds, gwf, wb="Hollands Noorderkwartier", cbot=1.0, e
         Bottom resistance of the drains [days], by default 1.0. The per-cell conductance
         is ``cell_area / cbot``.
     exclude : xarray.DataArray or None, optional
-        Boolean mask over ``icell2d`` marking cells at which no DRN reach should be
-        emitted. Both the conductance and the elevation are nulled at these cells, so a
-        reach is dropped whether its stage comes from HHNK peilgebied data or from the
-        maaiveld fallback (``nlmod.gwf.drn`` masks on ``cond > 0``). The default None
-        applies no exclusion and is fully backward-compatible. Used to hand carved lake
-        cells over to a dedicated stage boundary.
+        Boolean mask or open-water fraction (0-1) over ``icell2d``. The conductance is
+        scaled by the drainable land share ``1 - exclude`` (a boolean ``True`` scales by
+        0), so a reach is dropped at fully open-water cells — whether its stage comes from
+        HHNK peilgebied data or from the maaiveld fallback (``nlmod.gwf.drn`` masks on
+        ``cond > 0``) — and only drains the land share elsewhere. The default None applies
+        no exclusion and is fully backward-compatible. Used to hand carved lake cells over
+        to a dedicated stage boundary and to keep open water out of the drained area.
 
     Returns
     -------
@@ -91,10 +92,11 @@ def drn_from_waterboard_data(ds, gwf, wb="Hollands Noorderkwartier", cbot=1.0, e
     ds["drn_cond"] = drn_cond
 
     if exclude is not None:
-        # Null both fields at excluded cells. nlmod.gwf.drn builds a reach wherever
-        # cond > 0, so nulling drn_cond drops the reach whether its stage came from the
-        # celldata assignment or the maaiveld fallback above.
-        ds["drn_cond"] = ds["drn_cond"].where(~exclude)
-        ds["drn_elev"] = ds["drn_elev"].where(~exclude)
+        # Scale the conductance by the drainable land share; nlmod.gwf.drn builds a reach
+        # wherever cond > 0, so a zero land share drops the reach whether its stage came
+        # from the celldata assignment or the maaiveld fallback above.
+        land = (1.0 - exclude.astype(float)).clip(min=0.0)
+        ds["drn_cond"] *= land
+        ds["drn_elev"] = ds["drn_elev"].where(land > 0)
 
     return nlmod.gwf.drn(ds, gwf, elev="drn_elev", cond="drn_cond")
