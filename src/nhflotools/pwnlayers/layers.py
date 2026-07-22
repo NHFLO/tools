@@ -247,9 +247,9 @@ def get_pwn_layer_model(
         remove_nan_layers=True,
     )
 
-    # Get idomain based on layer thickness
-    idomain = nlmod.dims.layers.get_idomain(layer_model_active)
-
+    # idomain is deliberately not stored: it is derived from layer thickness and goes stale on any
+    # later geometry edit (e.g. set_model_top). nlmod recomputes it at package-build time via
+    # nlmod.dims.layers.get_idomain (see nlmod PR #250 / NHFLO/models#120).
     return xr.Dataset(
         data_vars={
             "kh": layer_model_active["kh"],
@@ -260,7 +260,6 @@ def get_pwn_layer_model(
             "xv": ds_regis["xv"],
             "yv": ds_regis["yv"],
             "icvert": ds_regis["icvert"],
-            "idomain": idomain,
         },
         coords={
             "x": layer_model_active.coords["x"],
@@ -307,7 +306,9 @@ def get_top_from_ahn(
     top = ds["ahn"].copy()
 
     if replace_surface_water_with_peil:
-        gdf_surface_water = nlmod.read.rws.get_gdf_surface_water(extent=ds.extent, cachename="surface_water", cachedir=cachedir)
+        gdf_surface_water = nlmod.read.rws.get_gdf_surface_water(
+            extent=ds.extent, cachename="surface_water", cachedir=cachedir
+        )
         rws_ds = nlmod.read.rws.discretize_surface_water(
             ds, gdf=gdf_surface_water, da_basename="rws_oppwater", cachedir=cachedir, cachename="rws_ds.nc"
         )
