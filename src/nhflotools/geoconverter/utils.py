@@ -119,7 +119,7 @@ def read_tabular(
     y_column: str | None,
     wkt_column: str | None,
     target_crs: str = "EPSG:28992",
-    **kwargs
+    **kwargs,
 ) -> gpd.GeoDataFrame:
     """Read tabular data with geometry information.
 

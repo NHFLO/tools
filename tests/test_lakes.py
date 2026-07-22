@@ -384,3 +384,23 @@ def test_lak_gdf_from_lakes_pwn_returns_none_when_no_lake_cells(disv_grid):
     sliver = _lake_gdf([_piece(CELL_40, box(0, 400, 20, 420), 2.0, 1.0)])
     ds_carved, _ = lakes.carve_lake_cells(ds, sliver, min_area_fraction=0.5)
     assert lakes.lak_gdf_from_lakes_pwn(ds_carved, sliver, min_area_fraction=0.5) is None
+
+
+def test_pond_mask_fractional_uses_panden_coverage(disv_grid):
+    """With ``ds['panden_coverage']`` present the panden share is fractional and sums with the lake share."""
+    ds, _gwf, geoms = disv_grid()
+    rows = [
+        _piece(CELL_40, box(0, 400, 80, 600), 2.0, 1.0),  # 40% lake -> not carved
+        _piece(CELL_FULL, geoms[CELL_FULL], 2.0, 1.0),  # carved
+    ]
+    ds_carved, _ = lakes.carve_lake_cells(ds, _lake_gdf(rows), min_area_fraction=0.5)
+    panden_coverage = xr.zeros_like(ds_carved["lake_coverage"])
+    panden_coverage.loc[{"icell2d": PANDEN_A}] = 0.3
+    panden_coverage.loc[{"icell2d": CELL_40}] = 0.9
+    ds_carved["panden_coverage"] = panden_coverage
+
+    frac = lakes.recharge_pond_mask(ds_carved, None, fractional=True)
+
+    assert frac.sel(icell2d=PANDEN_A).item() == pytest.approx(0.3)  # fraction, not 1.0
+    assert frac.sel(icell2d=CELL_40).item() == pytest.approx(1.0)  # 0.4 lake + 0.9 panden, clipped
+    assert frac.sel(icell2d=CELL_FULL).item() == pytest.approx(1.0)  # carved stays fully covered

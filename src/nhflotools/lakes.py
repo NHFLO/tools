@@ -314,10 +314,12 @@ def recharge_pond_mask(ds, panden_riv=None, *, fractional=False):
     fractional : bool, optional
         When False (default) return the boolean mask: True at carved lake cells and panden
         RIV cells. When True return a float fraction per cell instead: 1.0 at carved lake
-        cells (the whole cell is modeled as lake bed held by the RIV) and at panden RIV
-        cells, and the open-water coverage fraction at cells below the carve threshold —
-        precipitation on such a partial lake sliver feeds the lake (whose balance the
-        prescribed stage absorbs), not the aquifer, so the caller can scale recharge by
+        cells (the whole cell is modeled as lake bed held by the RIV), the panden-covered
+        fraction from ``ds['panden_coverage']`` (set by
+        :func:`nhflotools.panden.riv_from_oppervlakte_pwn`; 1.0 at panden RIV cells when
+        that variable is absent), and the open-water coverage fraction at cells below the
+        carve threshold — precipitation on such a partial lake or pand sliver feeds the
+        stage boundary, not the aquifer, so the caller can scale recharge by
         ``1 - fraction`` there instead of keeping the full land P-E.
 
     Returns
@@ -332,4 +334,10 @@ def recharge_pond_mask(ds, panden_riv=None, *, fractional=False):
         mask.loc[{"icell2d": cells}] = True
     if not fractional:
         return mask
-    return xr.where(mask, 1.0, ds["lake_coverage"], keep_attrs=True)
+    if "panden_coverage" in ds:
+        coverage = ds["lake_coverage"] + ds["panden_coverage"]
+    elif panden_riv is not None:
+        coverage = xr.where(mask & ~ds["lake_cell"], 1.0, ds["lake_coverage"])
+    else:
+        coverage = ds["lake_coverage"]
+    return xr.where(ds["lake_cell"], 1.0, coverage.clip(max=1.0), keep_attrs=True)
