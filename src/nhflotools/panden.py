@@ -5,8 +5,10 @@ import flopy
 import geopandas as gpd
 import nlmod
 import numpy as np
+import xarray as xr
 
 logger = logging.getLogger(__name__)
+
 
 def get_oppervlakte_pwn_shapes(data_path_panden):
     """Get oppervlakte shapes for PWN area.
@@ -59,13 +61,22 @@ def riv_from_oppervlakte_pwn(ds, gwf, data_path_panden):
     Returns
     -------
     flopy.mf6.ModflowGwfriv or None
-        RIV package, or None when no data intersects the model extent.
+        RIV package, or None when no data intersects the model extent. As a side effect
+        ``ds['panden_coverage']`` is set: the panden-covered fraction of each cell, used by
+        :func:`nhflotools.lakes.recharge_pond_mask` for the fractional recharge mask.
     """
     panden_shp = get_oppervlakte_pwn_shapes(data_path_panden=data_path_panden)
     rivdata = nlmod.grid.gdf_to_grid(panden_shp, ds)
     if rivdata.empty:
         logger.warning("No RIV data found within the provided extent.")
         return None
+
+    piece_area = rivdata.groupby("cellid")["area"].sum()
+    coverage = xr.zeros_like(ds["area"], dtype=float)
+    coverage.loc[{"icell2d": piece_area.index.to_numpy()}] = (
+        piece_area.to_numpy() / ds["area"].sel(icell2d=piece_area.index.to_numpy()).to_numpy()
+    ).clip(max=1.0)
+    ds["panden_coverage"] = coverage
 
     rivdata["cond"] = rivdata["area"] / rivdata["c"]
     agg = nlmod.grid.aggregate_vector_per_cell(

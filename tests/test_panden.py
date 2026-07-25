@@ -182,3 +182,14 @@ def test_riv_ssm_registration_is_transport_gated_and_idempotent(tmp_path, transp
         assert ds.attrs["ssm_sources"] == [riv.package_name]
     else:
         assert "ssm_sources" not in ds.attrs
+
+
+def test_riv_stores_panden_coverage(tmp_path, panden_ds_gwf):
+    """The panden-covered fraction of each cell is stored for the fractional recharge mask."""
+    ds, gwf = panden_ds_gwf
+    # 50 m x 50 m pand wholly inside cell 0 of the 2x2 grid of 100 m x 100 m cells.
+    path = _write_panden_shp(tmp_path, [box(10, 110, 60, 160)], ["ICAS-noord"])
+
+    riv_from_oppervlakte_pwn(ds, gwf, data_path_panden=path)
+
+    np.testing.assert_allclose(ds["panden_coverage"].values, [2500.0 / 10000.0, 0.0, 0.0, 0.0])
