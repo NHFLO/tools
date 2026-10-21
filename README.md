@@ -17,6 +17,7 @@ door 09pwnmodel2 en zijn ongetest — behandel ze als legacy of werk-in-uitvoeri
 
 | Module | Wat het doet | Gebruikt in 09pwnmodel2 |
 |---|---|---|
+| `fluxpark.py` | FluxPark-drainage en potentieel transpiratietekort inlezen, middelen naar modelperioden en modelgrid, met NetCDF-cache | `get_fluxpark_recharge` |
 | `major_surface_waters.py` | Grote RWS-oppervlaktewateren: Noordzee als CHD (met zeespiegel-tijdreeks en 18.000 mg/l chloride), IJsselmeer/Markermeer/Noordzeekanaal als GHB | `get_chd_ghb_data_from_major_surface_waters`, `chd_ghb_from_major_surface_waters` |
 | `nhi_chloride.py` | NHI-chlorideconcentratie interpoleren naar het modelgrid als begintoestand voor transport | `get_nhi_chloride_concentration` |
 | `panden.py` | Infiltratiepanden (ICAS/IKIEF) als RIV-package | `riv_from_oppervlakte_pwn` |
