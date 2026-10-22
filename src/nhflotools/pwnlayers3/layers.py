@@ -42,7 +42,7 @@ from nhflotools.pwnlayers.merge_layer_models import combine_two_layer_models
 logger = logging.getLogger(__name__)
 
 layer_names = pd.Index(
-    ["W11", "S11", "W12", "S12", "W13", "S13", "W21", "S21", "W22", "S22", "W31", "S31", "W32", "S32"], name="layer"
+    ["W11", "S11", "W12", "S12", "W13", "S13", "W21A", "S21A", "W21B", "S21", "W22", "S22", "W31", "S31", "W32", "S32"], name="layer"
 )
 if version.parse(metadata.version("nlmod")) < version.parse("0.9.1.dev0"):
     msg = "nlmod version 0.9.1.dev0 or higher is required"
@@ -398,6 +398,7 @@ def get_ds(
     )
 
     # Validate consistency between data, mask, and transition
+    # nlmod.plot.facet_plot(ds, da=(ds[var].notnull() == mask[var]))
     for var in ["kh", "kv", "botm"]:
         if not (ds[var].notnull() == mask[var]).all():
             msg = f"{var} has NaN values in cells where mask is True"
@@ -529,11 +530,16 @@ def get_gdf_boundaries(data_path_2024):
         boundary geometry for each layer.
     """
     data = {}
-    for name in ["11", "12", "13", "21", "22", "31", "32"]:
+    for name in ["11", "12", "13", "21A", "21", "22", "31", "32"]:
         fp = data_path_2024 / "boundaries" / f"S{name}" / f"S{name}.geojson"
         gdf = gpd.read_file(fp, driver="GeoJSON")
         for aquifer_aquitard in ["W", "S"]:
-            data[f"{aquifer_aquitard}{name}"] = gdf.iloc[0].copy()
+            if name == "21" and aquifer_aquitard == "W":
+                label = "W21B"
+            else:
+                label = f"{aquifer_aquitard}{name}"
+            data[label] = gdf.iloc[0].copy()
+
     gdf_out = gpd.GeoDataFrame(data).T
     gdf_out = gdf_out.set_geometry("geometry")
     return gdf_out.set_crs(gdf.crs)
@@ -894,7 +900,7 @@ def get_kh(*, ds, data_path_2024, botm=None, anisotropy=10.0, fill_value_kh=5.0,
                 method_bergen = np.full(is_bergen.sum(), 4, dtype=np.int8)  # Bergen c->kh
                 method_bergen[np.isclose(d_bergen, 0.0)] = 6  # fill value
                 method_data[i, is_bergen] = method_bergen
-        elif name in {"S11", "S32"}:
+        elif name in {"S11", "S21A", "S32"}:
             fp = data_path_2024 / "conductances" / f"C{name}_combined.geojson"
             gdf = gpd.read_file(fp, driver="GeoJSON")
             gdf = gdf.explode(index_parts=False).reset_index(drop=True)
