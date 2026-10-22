@@ -108,6 +108,38 @@ def test_internal_gap_uses_nearest_observation_without_filling_spatial_nan(tmp_p
     assert result.recharge.isel(time=[1, 2]).isnull().all()
 
 
+@pytest.mark.parametrize("fillna", [True, False])
+def test_spatial_fill_uses_vertex_centres_per_period(tmp_path, fillna):
+    """Fill spatial holes independently per variable and period, not by cell index."""
+    dates = pd.date_range("2022-01-01", periods=2)
+    path = _write_fluxpark(tmp_path, dates, [1, 10], [2.0, 20.0])
+    with xr.open_dataset(path / "rch_fluxpark.nc") as source:
+        source.load()
+    source["drain_mm_d"][:, 0, :] = np.nan
+    source["trans_def_pot_mm_d"][:, 1, :] = np.nan
+    source.to_netcdf(path / "rch_fluxpark.nc")
+    order = [3, 0, 2, 1]
+    ds = _model_ds("2022-01-01", [1.0, 1.0], False).isel(icell2d=order)
+    ds = ds.assign_coords(icell2d=np.arange(4))
+    cachedir = tmp_path / "cache"
+    cachedir.mkdir()
+    options = {
+        "ds": ds,
+        "data_path_fluxpark": path,
+        "start": ds.time.start,
+        "cachedir": str(cachedir),
+        "cachename": "fluxpark",
+    }
+    get_fluxpark_recharge(**options, fillna=not fillna)
+    result = get_fluxpark_recharge(**options, fillna=fillna)
+    drainage = np.array([3, 4, 3, 4] if fillna else [np.nan, np.nan, 3, 4])
+    deficit = np.array([2, 2, 2, 2] if fillna else [2, 2, np.nan, np.nan])
+    for variable, spatial in [("recharge", drainage), ("evaporation", deficit)]:
+        assert result[variable].dims == ("time", "icell2d")
+        pd.testing.assert_index_equal(result.indexes["time"], ds.indexes["time"])
+        np.testing.assert_allclose(result[variable], np.array([1, 10])[:, None] * spatial[order] / 1000)
+
+
 @pytest.mark.parametrize("reverse", [False, True])
 @pytest.mark.parametrize("cell_size", [1.0, 0.25])
 def test_spatial_crop_precedes_time_averaging(tmp_path, monkeypatch, reverse, cell_size):

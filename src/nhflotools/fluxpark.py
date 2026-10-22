@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 @nlmod.cache.cache_netcdf(coords_2d=True, coords_time=True)
-def get_fluxpark_recharge(ds, data_path_fluxpark, start, extrapolate_in_time=True):  # noqa: FBT002
+def get_fluxpark_recharge(ds, data_path_fluxpark, start, extrapolate_in_time=True, fillna=True):  # noqa: C901, FBT002
     """Crop FluxPark fluxes and average onto model periods and grid cells.
 
     Parameters
@@ -30,7 +30,12 @@ def get_fluxpark_recharge(ds, data_path_fluxpark, start, extrapolate_in_time=Tru
         Fill periods containing no source timestamps with the source rate nearest
         their period-end timestamp. Applies to internal gaps and dates outside
         the source record. Default is True; False leaves empty periods as NaN.
-        Missing spatial values in observed periods are not filled.
+        Spatial filling is controlled separately by ``fillna``.
+    fillna : bool, optional
+        Fill missing model-cell values from the nearest valid vertex-cell centre
+        within each variable and period using ``nlmod.resample.fillnan_da``.
+        Default is True. Entirely missing periods remain NaN;
+        no values are borrowed from other periods.
 
     Returns
     -------
@@ -104,5 +109,14 @@ def get_fluxpark_recharge(ds, data_path_fluxpark, start, extrapolate_in_time=Tru
                     rates[output_name] = resampled.reindex(time=ds.time)
                 else:
                     rates[output_name][{"time": slice(index, index + 1)}] = resampled
+
+            if fillna:
+                for time in rates[output_name].time.values:
+                    rate = rates[output_name].sel(time=time)
+                    if rate.isnull().any() and rate.notnull().any():
+                        rates[output_name].loc[{"time": time}] = nlmod.resample.fillnan_da(
+                            rate, ds=ds, method="nearest"
+                        )
+
             rates[output_name].attrs = {"units": "m/d"}
     return xr.Dataset(rates)
