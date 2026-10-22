@@ -26,9 +26,20 @@ door 09pwnmodel2 en zijn ongetest — behandel ze als legacy of werk-in-uitvoeri
 | `pwnlayers/layers.py` | Alleen de maaiveldhoogte uit AHN, inclusief opvullen bij oppervlaktewater en zee | `get_top_from_ahn` |
 | `pwnlayers3/layers.py` | Het PWN-lagenmodel (v3): botm, kh en kv uit de bodemlagenkartering, samengevoegd met REGIS | `get_pwn_layer_model` |
 | `pwnlayers3/plot.py` | Diagnostische dwarsdoorsneden van het lagenmodel | `plot_diagnostic_cross_sections` |
-| `well.py` | Winnings- en infiltratieputten van PWN en Tata Steel | `get_wells_pwn_dataframe`, `get_wells_tata_dataframes` |
+| `well.py` | Winnings- en infiltratieputten van PWN en Tata Steel; mediane debieten of tijdreeksen gemiddeld per modelperiode | `get_wells_pwn_dataframe`, `resample_well_flows`, `get_wells_tata_dataframes` |
 | `pwnlayers/merge_layer_models.py` | Twee lagenmodellen samenvoegen via een koppeltabel, met overgangszone | indirect, via `pwnlayers3` |
 | `pwnlayers/utils.py` | Ontbrekende en elkaar kruisende laagbodems repareren | indirect, via `merge_layer_models` |
+
+Voor PWN levert `get_wells_pwn_dataframe(..., flow_product="timeseries")` een
+putten-dataframe met TS6-namen in `Q` en de bijbehorende tijdreeksen in m3/d.
+`resample_well_flows(flows, ds)` middelt de beschikbare waarnemingen per
+`[periodestart, periode-einde)` en vult lege perioden met de geldige waarneming
+het dichtst bij het periode-einde. Koppel het resultaat met
+`nlmod.time.dataframe_to_flopy_timeseries(..., shift_label_from_right_to_left=True)`
+voor stapsgewijs constante debieten. Gebruik `grouped=True` voor een MAW per
+`sec_flow_tag`; standaard worden debieten verdeeld over `sec_nput` voor WEL.
+Zonder `flow_product="timeseries"` blijft `Q` de mediaan over het volledige
+feather-bestand.
 
 ### Niet gebruikt door 09pwnmodel2 (ongetest)
 

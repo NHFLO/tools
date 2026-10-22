@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import flopy
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -440,11 +441,99 @@ def test_pwn_drops_unusable_wells_warns_once_and_keeps_infiltration(pwn_data_pat
     assert (wdf.loc[["W1", "W2", "W3", "W4"], "Q"] < 0.0).all()
 
 
-@pytest.mark.parametrize(
-    ("flow_product", "expected_error"),
-    [("timeseries", NotImplementedError), ("bogus", ValueError)],
-)
-def test_pwn_unsupported_flow_product_raises(pwn_data_path, flow_product, expected_error):
-    """Only the median product is implemented; other products fail loudly."""
-    with pytest.raises(expected_error):
-        well.get_wells_pwn_dataframe(pwn_data_path, flow_product=flow_product)
+def test_pwn_unsupported_flow_product_raises(pwn_data_path):
+    """Unknown products fail loudly."""
+    with pytest.raises(ValueError, match="flow_product bogus not implemented"):
+        well.get_wells_pwn_dataframe(pwn_data_path, flow_product="bogus")
+
+
+@pytest.mark.parametrize("grouped", [False, True])
+def test_pwn_timeseries_preserves_idle_wells_and_flow_totals(pwn_data_path, grouped):
+    """Time-series names resolve to signed daily flows, including zero-median wells."""
+    wdf, flows = well.get_wells_pwn_dataframe(pwn_data_path, flow_product="timeseries", grouped=grouped)
+
+    assert wdf.index.to_list() == ["W1", "W2", "W3", "W4", "W7", "W8"]
+    assert all(isinstance(q, str) for q in wdf["Q"])
+    assert flows.index.equals(pd.date_range("2024-01-01", periods=3))
+    factor = 1 if grouped else 3
+    np.testing.assert_allclose(flows[wdf.loc["W1", "Q"]] * factor, [-720.0] * 3)
+    np.testing.assert_allclose(flows[wdf.loc["W4", "Q"]], [-240.0, -480.0, -1440.0])
+    np.testing.assert_allclose(flows[wdf.loc["W7", "Q"]], np.array([-96.0, 0.0, 96.0]) / (1 if grouped else 2))
+    np.testing.assert_allclose(flows[wdf.loc["W8", "Q"]], np.array([96.0, 192.0, 480.0]) / (1 if grouped else 2))
+    assert wdf.loc[["W1", "W2", "W3"], "Q"].nunique() == 1
+
+
+def test_well_period_means_and_nearest_fill():
+    """Average half-open periods; empty periods use each column's nearest valid source."""
+    flows = pd.DataFrame(
+        {"pump": [-10.0, -30.0, -90.0], "infiltration": [2.0, np.nan, 8.0]},
+        index=pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-08"]),
+    )
+    ds = well.nlmod.time.set_ds_time(xr.Dataset(), start="2023-12-30", perlen=[1, 3, 1, 1, 3, 4], steady=False)
+    result = well.resample_well_flows(flows, ds)
+    np.testing.assert_allclose(result["pump"], [-10, -10, -30, -30, -90, -90])
+    np.testing.assert_allclose(result["infiltration"], [2, 2, 2, 8, 8, 8])
+    assert result.index.equals(pd.DatetimeIndex(ds.time.values))
+
+    # A second discretization puts two observations in one period, with unequal lengths.
+    ds = well.nlmod.time.set_ds_time(xr.Dataset(), start="2024-01-01", perlen=[3, 5], steady=False)
+    result = well.resample_well_flows(flows, ds)
+    np.testing.assert_allclose(result["pump"], [-20, -90])
+    assert np.dot(result["pump"], [3, 5]) == pytest.approx(-510.0)
+
+
+@pytest.mark.parametrize("grouped", [False, True])
+def test_pwn_timeseries_write_real_well_packages(pwn_data_path, tmp_path, grouped):
+    """Both builders write resolvable TS6 references with stepwise period-start values."""
+    wdf, flows = well.get_wells_pwn_dataframe(pwn_data_path, flow_product="timeseries", grouped=grouped)
+    wdf = wdf.loc[["W1", "W2", "W3", "W4"]].copy()
+    wdf["top"], wdf["botm"] = 9.0, 1.0
+    ds = well.nlmod.time.set_ds_time(xr.Dataset(), start="2024-01-01", perlen=[2, 1], steady=False)
+    sim = flopy.mf6.MFSimulation(sim_ws=tmp_path / "model")
+    flopy.mf6.ModflowTdis(sim, nper=2, perioddata=[(2.0, 2, 1.0), (1.0, 1, 1.0)])
+    gwf = flopy.mf6.ModflowGwf(sim, modelname="test")
+    flopy.mf6.ModflowGwfdis(gwf, nlay=2, nrow=1, ncol=3, delr=100.0, delc=100.0, top=10.0, botm=[5.0, 0.0])
+    flopy.mf6.ModflowGwfnpf(gwf, k=[1.0, 3.0])
+    wdf["geometry"] = [Point(50, 50), Point(150, 50), Point(250, 50), Point(50, 50)]
+    if grouped:
+        package = well.nlmod.gwf.wells.maw_from_df(wdf, gwf, group="sec_flow_tag", silent=True)
+        records = package.perioddata.get_data(0)
+        assert set(records["mawsetting"]) == {"RATE"}
+        assert {row[2] for row in records} == set(wdf["Q"])
+    else:
+        package = well.nlmod.gwf.wells.wel_from_df(wdf, gwf)
+        records = package.stress_period_data.get_data(0)
+        assert set(records["q"]) == set(wdf["Q"])
+        assert records["multiplier"].sum() == pytest.approx(4.0)
+    well.nlmod.time.dataframe_to_flopy_timeseries(
+        well.resample_well_flows(flows, ds),
+        ds=ds,
+        package=package,
+        shift_label_from_right_to_left=True,
+    )
+    sim.write_simulation(silent=True)
+    ts = package.ts[0].timeseries.get_data()
+    np.testing.assert_allclose(ts["ts_time"], [0.0, 2.0, 3.0])
+    names = list(package.ts[0].time_series_namerecord.get_data()[0])
+    for location, expected in [
+        ("W1", [-720.0 if grouped else -240.0] * 3),
+        ("W4", [-360.0, -1440.0, -1440.0]),
+    ]:
+        column = names.index(wdf.loc[location, "Q"]) + 1
+        np.testing.assert_allclose([row[column] for row in ts], expected)
+    assert "STEPWISE" in (tmp_path / "model" / package.ts[0].filename).read_text().upper()
+
+
+def test_pwn_grouped_medians_are_secundair_totals(pwn_data_path):
+    """Grouped MAW rates are not divided over the number of physical wells."""
+    wdf = well.get_wells_pwn_dataframe(pwn_data_path, grouped=True)
+    np.testing.assert_allclose(wdf["Q"], [-720, -720, -720, -480, 192])
+
+
+@pytest.mark.parametrize("values", [[np.nan, np.nan], [-10.0, np.inf]])
+def test_well_resampling_rejects_unusable_series(values):
+    """Absent or infinite observations cannot silently become a model forcing."""
+    ds = well.nlmod.time.set_ds_time(xr.Dataset(), start="2024-01-01", perlen=[2], steady=False)
+    flows = pd.DataFrame({"pump": values}, index=pd.date_range("2024-01-01", periods=2))
+    with pytest.raises(ValueError, match="must contain finite observations"):
+        well.resample_well_flows(flows, ds)

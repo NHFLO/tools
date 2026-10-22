@@ -11,7 +11,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def get_wells_pwn_dataframe(data_path_wells_pwn, flow_product="median"):
+def get_wells_pwn_dataframe(data_path_wells_pwn, flow_product="median", *, grouped=False):
     """Get wells dataframe for PWN model.
 
     Negative is extraction, positive is infiltration, MODFLOW convention. Data is in m3/h and function
@@ -22,16 +22,18 @@ def get_wells_pwn_dataframe(data_path_wells_pwn, flow_product="median"):
     data_path_wells_pwn : str
         Path to the wells data.
     flow_product : str, optional
-        Product to use for the flow, by default "median". Other products are currently not implemented.
+        ``"median"`` (default) for constant rates or ``"timeseries"`` for TS6 names.
+    grouped : bool, optional
+        Return full secundair rates for ``maw_from_df(group="sec_flow_tag")``.
+        Default False divides rates by ``sec_nput`` for individual WEL wells.
 
     Returns
     -------
-    gpd.GeoDataFrame
-        GeoDataFrame with wells metadata and per-well flow ``Q`` [m3/day]. ``Q`` is the
-        secundair median flow divided over its ``sec_nput`` wells, so the individual wells
-        sum to the secundair total -- correct for the WEL package. For a grouped MAW well
-        (``maw_from_df(group="sec_flow_tag")``) multiply ``Q`` by ``sec_nput`` first, because
-        MAW applies a single combined RATE per group.
+    gpd.GeoDataFrame or tuple of (gpd.GeoDataFrame, pd.DataFrame)
+        Wells with numeric ``Q`` [m3/day] for medians. For time series, ``Q`` contains
+        names referencing columns in the returned datetime-indexed rates [m3/day].
+        Use :func:`resample_well_flows` before attaching these to a MODFLOW package.
+        Time series retain temporarily idle and zero-median wells.
     """
     wdf = gpd.read_file(os.path.join(data_path_wells_pwn, "pumping_infiltration_wells.geojson"))
     wdf.index = wdf.locatie
@@ -44,19 +46,13 @@ def get_wells_pwn_dataframe(data_path_wells_pwn, flow_product="median"):
 
     # Get flows of entire secundair. (negative is extraction, positive is infiltration. data is in m3/h)
     flows = pd.read_feather(os.path.join(data_path_wells_pwn, "sec_flows.feather"))
+    wdf["sec_nput"] = pd.to_numeric(wdf["sec_nput"], errors="coerce")
     if flow_product == "timeseries":
-        msg = "flow_product==timeseries not implemented"
-        raise NotImplementedError(msg)
-        # wdf["Q"] = wdf.sec_flow_tag and convert to m3/day
-        # wdf = wdf.dropna(subset=["Q"])
-        # Add `flows` as timeseries using nlmod.dims.time.dataframe_to_flopy_timeseries
-
-        # return wdf, flows
+        return _get_pwn_flow_timeseries(wdf, flows, grouped=grouped)
 
     # If constant
     if flow_product == "median":
         constant_flow = flows.median(axis=0, numeric_only=True)
-        wdf["sec_nput"] = pd.to_numeric(wdf["sec_nput"], errors="coerce")
         wdf["Q"] = wdf.sec_flow_tag.map(constant_flow) / wdf.sec_nput * 24.0
         wdf["Q"] = wdf["Q"].where(np.isfinite(wdf["Q"]) & (wdf["Q"] != 0))
         n_dropped = int(wdf["Q"].isna().sum())
@@ -67,10 +63,87 @@ def get_wells_pwn_dataframe(data_path_wells_pwn, flow_product="median"):
                 n_dropped,
                 len(wdf),
             )
-        return wdf.dropna(subset=["Q"])
+        wdf = wdf.dropna(subset=["Q"])
+        if grouped:
+            wdf["Q"] *= wdf["sec_nput"]
+        return wdf
 
     msg = f"flow_product {flow_product} not implemented"
     raise ValueError(msg)
+
+
+def _get_pwn_flow_timeseries(wdf, flows, *, grouped):
+    """Prepare PWN rates and safe TS6 names without filtering on median flow."""
+    flows = flows.set_index(pd.to_datetime(flows["ophaal tijdstip"])).select_dtypes(include="number").sort_index()
+    if flows.index.hasnans or flows.index.has_duplicates:
+        msg = "PWN flow timestamps must be nonmissing and unique"
+        raise ValueError(msg)
+    if np.isinf(flows.to_numpy()).any():
+        msg = "PWN flow rates must not contain infinite values"
+        raise ValueError(msg)
+    valid = (
+        wdf["sec_flow_tag"].isin(flows.columns[flows.notna().any()])
+        & np.isfinite(wdf["sec_nput"])
+        & (wdf["sec_nput"] > 0)
+    )
+    if not valid.all():
+        logger.warning(
+            "Dropping %d of %d wells without a usable secundair time series or positive sec_nput.",
+            int((~valid).sum()),
+            len(wdf),
+        )
+    wdf = wdf.loc[valid].copy()
+    wdf["Q"] = ""
+    rates = pd.DataFrame(index=flows.index)
+    for number, ((tag, count), wells) in enumerate(wdf.groupby(["sec_flow_tag", "sec_nput"], sort=False)):
+        name = f"pwn_{number}"
+        if grouped:
+            # One RATE per MAW group, even if the metadata have different well counts.
+            name = f"pwn_{flows.columns.get_loc(tag)}"
+        wdf.loc[wells.index, "Q"] = name
+        rates[name] = flows[tag] * (24.0 if grouped else 24.0 / count)
+    return wdf, rates
+
+
+def resample_well_flows(flows, ds):
+    """Average PWN flow observations over model stress periods.
+
+    Parameters
+    ----------
+    flows : pd.DataFrame
+        Datetime-indexed well rates [m3/day], as returned by
+        ``get_wells_pwn_dataframe(..., flow_product="timeseries")``.
+    ds : xr.Dataset
+        Model dataset with datetime period ends in ``time`` and ``time.start``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Arithmetic means of available observations in each half-open
+        ``[period start, period end)`` interval, labelled at ``ds.time``.
+        Empty periods use the observation nearest their end, independently
+        per column, including extrapolation beyond the source record.
+        Applies equally to the steady spin-up and transient periods.
+        Attach using ``dataframe_to_flopy_timeseries`` with
+        ``shift_label_from_right_to_left=True`` and stepwise interpolation.
+    """
+    ends = pd.DatetimeIndex(ds.time.values)
+    starts = ends.insert(0, pd.Timestamp(ds.time.start))[:-1]
+    means = pd.DataFrame(
+        [
+            flows.loc[(flows.index >= start) & (flows.index < end)].mean()
+            for start, end in zip(starts, ends, strict=True)
+        ],
+        index=ends,
+        columns=flows.columns,
+    )
+    for name in flows:
+        observed = flows[name].dropna().sort_index()
+        if observed.empty or not np.isfinite(observed).all():
+            msg = f"Well time series {name!r} must contain finite observations"
+            raise ValueError(msg)
+        means[name] = means[name].fillna(observed.reindex(ends, method="nearest"))
+    return means
 
 
 def get_wells_tata_dataframes(
